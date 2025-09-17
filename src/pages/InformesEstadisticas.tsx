@@ -26,12 +26,12 @@ import {
   XAxis,
   YAxis,
   ResponsiveContainer,
+  BarChart,
 } from "recharts";
 import {
   CalendarDays,
   CalendarRange,
   Loader2,
-  Thermometer,
   Phone,
   Clock,
   Timer,
@@ -130,10 +130,6 @@ const formatPercentage = (value: number) => `${value.toFixed(1)}%`;
 const InformesEstadisticas = () => {
   const [dateRange, setDateRange] = useState<DateRange>(createInitialRange);
   const { t } = useLanguage();
-  const [temperatureData, setTemperatureData] = useState<{
-    [key: string]: number;
-  }>({});
-  const [loadingTemperature, setLoadingTemperature] = useState(false);
 
   const {
     metrics,
@@ -214,9 +210,8 @@ const InformesEstadisticas = () => {
         label: point.label,
         llamadas: point.calls,
         tendencia: point.movingAverage ?? null,
-        temperatura: temperatureData[point.label] ?? null,
       })),
-    [trend, temperatureData],
+    [trend],
   );
 
   const totalCalls = useMemo(
@@ -264,51 +259,6 @@ const InformesEstadisticas = () => {
     from.setDate(from.getDate() - (days - 1));
     from.setHours(0, 0, 0, 0);
     setDateRange({ from, to });
-  };
-
-  const fetchTemperatureData = async () => {
-    setLoadingTemperature(true);
-    try {
-      const tempData: { [key: string]: number } = {};
-
-      // Generate all dates in the range
-      const currentDate = new Date(dateRange.from);
-      const endDate = new Date(dateRange.to);
-
-      while (currentDate <= endDate) {
-        const dateStr = currentDate.toISOString().split("T")[0]; // YYYY-MM-DD format
-
-        try {
-          // Using Open-Meteo API (free, no API key required)
-          const response = await fetch(
-            `https://archive-api.open-meteo.com/v1/archive?latitude=41.3851&longitude=2.1734&start_date=${dateStr}&end_date=${dateStr}&daily=temperature_2m_mean&timezone=Europe/Madrid`,
-          );
-
-          if (response.ok) {
-            const data = await response.json();
-            const avgTemp = data.daily?.temperature_2m_mean?.[0];
-            if (avgTemp !== undefined && avgTemp !== null) {
-              // Format date to match chart labels (DD/MM)
-              const label = currentDate.toLocaleDateString("es-ES", {
-                day: "2-digit",
-                month: "2-digit",
-              });
-              tempData[label] = Math.round(avgTemp);
-            }
-          }
-        } catch (error) {
-          console.warn(`Failed to fetch temperature for ${dateStr}:`, error);
-        }
-
-        currentDate.setDate(currentDate.getDate() + 1);
-      }
-
-      setTemperatureData(tempData);
-    } catch (error) {
-      console.error("Error fetching temperature data:", error);
-    } finally {
-      setLoadingTemperature(false);
-    }
   };
   return (
     <div className="space-y-6">
@@ -576,20 +526,6 @@ const InformesEstadisticas = () => {
                           : t("reports.calls.noData")}
                       </CardDescription>
                     </div>
-                    <Button
-                      onClick={fetchTemperatureData}
-                      disabled={loadingTemperature}
-                      variant="outline"
-                      size="sm"
-                      className="gap-2"
-                    >
-                      {loadingTemperature ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Thermometer className="h-4 w-4" />
-                      )}
-                      {loadingTemperature ? "Cargando..." : "Temperatura"}
-                    </Button>
                   </div>
                 </CardHeader>
                 <CardContent>
@@ -600,7 +536,7 @@ const InformesEstadisticas = () => {
                   ) : (
                     <div className="h-72">
                       <ResponsiveContainer width="100%" height="100%">
-                        <ComposedChart
+                        <BarChart
                           data={chartData}
                           margin={{ top: 20, right: 30, left: 0, bottom: 0 }}
                         >
@@ -614,48 +550,22 @@ const InformesEstadisticas = () => {
                             fontSize={12}
                           />
                           <YAxis
-                            yAxisId="calls"
-                            orientation="left"
                             stroke="#64748b"
                             fontSize={12}
                             allowDecimals={false}
                           />
-                          <YAxis
-                            yAxisId="temp"
-                            orientation="right"
-                            stroke="#ef4444"
-                            fontSize={12}
-                            allowDecimals={false}
-                          />
                           <Tooltip
-                            formatter={(value: number, name: string) => {
-                              if (name === "temperatura") {
-                                return [`${value}°C`, "Temperatura"];
-                              }
-                              return [
-                                `${value} ${t("reports.calls.calls")}`,
-                                t("reports.calls.calls"),
-                              ];
-                            }}
+                            formatter={(value: number) => [
+                              `${value} ${t("reports.calls.calls")}`,
+                              t("reports.calls.calls"),
+                            ]}
                           />
                           <Bar
-                            yAxisId="calls"
                             dataKey="llamadas"
                             fill="#2563eb"
                             name={t("reports.calls.calls")}
                           />
-                          {Object.keys(temperatureData).length > 0 && (
-                            <Line
-                              yAxisId="temp"
-                              type="monotone"
-                              dataKey="temperatura"
-                              stroke="#ef4444"
-                              strokeWidth={2}
-                              dot={{ fill: "#ef4444", strokeWidth: 2, r: 4 }}
-                              name="Temperatura"
-                            />
-                          )}
-                        </ComposedChart>
+                        </BarChart>
                       </ResponsiveContainer>
                     </div>
                   )}
