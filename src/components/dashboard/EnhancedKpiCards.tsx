@@ -63,7 +63,7 @@ export default function EnhancedKpiCards({
                 </div>
                 <div>
                   <h2 className="text-xl font-semibold text-white/90">{t('dashboard.totalCalls')}</h2>
-                  {dateRange && (
+                  {dateRange && dateRange.from && dateRange.to && (
                     <p className="text-white/70">
                       {dateRange.from.toLocaleDateString('ca-ES')} - {dateRange.to.toLocaleDateString('ca-ES')}
                     </p>
@@ -114,8 +114,10 @@ export default function EnhancedKpiCards({
             <CardTitle className="text-sm font-medium text-muted-foreground">{t('dashboard.avgCallDuration')}</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold text-primary mb-1">
-              {loading ? '...' : formatMMSS(ahtSeconds)}
+            <div className="flex items-baseline gap-2">
+              <div className="text-3xl font-bold text-primary">
+                {loading ? '...' : formatMMSS(ahtSeconds)}
+              </div>
             </div>
           </CardContent>
         </Card>

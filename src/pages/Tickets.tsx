@@ -22,7 +22,21 @@ const Tickets = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<MappedTicket | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
-  const [pagination, setPagination] = useState({ page: 1, limit: 25 });
+  const [activeTab, setActiveTab] = useState('all');
+  const [currentTotal, setCurrentTotal] = useState(0);
+  const [tabPaginations, setTabPaginations] = useState<Record<string, {page: number, limit: number}>>({
+    all: {page: 1, limit: 25},
+    urgent: {page: 1, limit: 25},
+    breakdowns: {page: 1, limit: 25},
+    others: {page: 1, limit: 25},
+    unfinished_calls: {page: 1, limit: 25}
+  });
+  
+  const currentPagination = tabPaginations[activeTab];
+  
+  const handlePaginationChange = (pagination: {page: number, limit: number}) => {
+    setTabPaginations(prev => ({...prev, [activeTab]: pagination}));
+  };
   
   const [globalFilters, setGlobalFilters] = useState<GlobalFilters>({
     search: '',
@@ -132,10 +146,8 @@ const Tickets = () => {
 
   // Reset to page 1 when filters change
   useEffect(() => {
-    if (pagination.page > 1) {
-      setPagination(prev => ({ ...prev, page: 1 }));
-    }
-  }, [globalFilters, pagination.page]); // Reset page when unknown filter changes
+    handlePaginationChange({ ...currentPagination, page: 1 });
+  }, [globalFilters, activeTab]); // Reset page when filters or tab changes
 
   const handleTicketClick = useCallback((ticket: MappedTicket) => {
     setSelectedTicket(ticket);
@@ -210,9 +222,9 @@ const Tickets = () => {
       <GlobalTicketControls
         filters={globalFilters}
         onFiltersChange={setGlobalFilters}
-        pagination={pagination}
-        onPaginationChange={setPagination}
-        totalCount={filteredTickets.length}
+        pagination={currentPagination}
+        onPaginationChange={handlePaginationChange}
+        totalCount={currentTotal}
         tickets={tickets}
       />
 
@@ -220,7 +232,7 @@ const Tickets = () => {
       <div className="flex items-center justify-between text-sm text-muted-foreground">
         <div>
           {t('tickets.showingTickets', { 
-            limit: pagination.limit, 
+            limit: currentPagination.limit, 
             filtered: filteredTickets.length, 
             total: tickets.length 
           })}
@@ -240,8 +252,10 @@ const Tickets = () => {
           onPlayAudio={handlePlayAudio}
           onStatusChange={handleStatusChange}
           loading={loading}
-          pagination={pagination}
-          onPaginationChange={setPagination}
+          pagination={currentPagination}
+          onPaginationChange={handlePaginationChange}
+          onActiveTabChange={setActiveTab}
+          onCurrentTotalChange={setCurrentTotal}
         />
       </div>
 

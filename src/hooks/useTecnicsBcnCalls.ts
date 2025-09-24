@@ -75,7 +75,7 @@ interface UseTecnicsBcnCallsOptions {
   enabled?: boolean;
 }
 
-export const useTecnicsBcnCalls = (dateRange: { from: Date; to: Date }, options: UseTecnicsBcnCallsOptions = {}) => {
+export const useTecnicsBcnCalls = (dateRange?: { from?: Date; to?: Date }, options: UseTecnicsBcnCallsOptions = {}) => {
   const { enabled = true } = options;
 
   const [stats, setStats] = useState<TecnicsBcnDashboardStats>(INITIAL_STATS);
@@ -102,12 +102,12 @@ export const useTecnicsBcnCalls = (dateRange: { from: Date; to: Date }, options:
       setLoading(true);
       setError(null);
 
-      devLog('📅 useTecnicsBcnCalls: Fetching data for:', viewMode, 'mode, dateRange:', {
-        from: dateRange.from.toISOString(),
-        to: dateRange.to.toISOString(),
-        fromLocal: dateRange.from.toLocaleDateString(),
-        toLocal: dateRange.to.toLocaleDateString()
-      });
+      devLog('📅 useTecnicsBcnCalls: Fetching data for:', viewMode, 'mode, dateRange:', dateRange ? {
+        from: dateRange.from?.toISOString(),
+        to: dateRange.to?.toISOString(),
+        fromLocal: dateRange.from?.toLocaleDateString(),
+        toLocal: dateRange.to?.toLocaleDateString()
+      } : 'ALL TIME (no date filter)');
 
       // Fetch calls and tickets with pagination to avoid 1000-row cap
       const fetchAll = async (
@@ -122,13 +122,20 @@ export const useTecnicsBcnCalls = (dateRange: { from: Date; to: Date }, options:
 
           // Paginate through all records
           while (true) {
-            const { data, error } = await supabase
+            let query = supabase
               .from(table)
               .select('*')
-              .gte('created_at', dateRange.from.toISOString())
-              .lte('created_at', dateRange.to.toISOString())
               .order('created_at', { ascending: false })
               .range(from, from + pageSize - 1);
+
+            // Apply date filtering only if dateRange is provided
+            if (dateRange?.from && dateRange?.to) {
+              query = query
+                .gte('created_at', dateRange.from.toISOString())
+                .lte('created_at', dateRange.to.toISOString());
+            }
+
+            const { data, error } = await query;
 
             if (error) {
               console.error(
@@ -158,10 +165,10 @@ export const useTecnicsBcnCalls = (dateRange: { from: Date; to: Date }, options:
           
           devLog(`✅ ${table} complete fetch:`, {
             totalRecords: allData.length,
-            dateRange: {
-              from: dateRange.from.toISOString(),
-              to: dateRange.to.toISOString()
-            },
+            dateRange: dateRange ? {
+              from: dateRange.from?.toISOString(),
+              to: dateRange.to?.toISOString()
+            } : 'ALL TIME',
             firstRecord: allData[0]
               ? {
                   id: allData[0].id,
@@ -226,88 +233,141 @@ export const useTecnicsBcnCalls = (dateRange: { from: Date; to: Date }, options:
       let chartData: HourlyCallVolume[] = [];
       
       if (viewMode === 'hourly') {
-        devLog('📈 Processing hourly data for date range...', dateRange);
+        devLog('📈 Processing hourly data...', dateRange ? 'with date range' : 'ALL TIME');
         
-        // Generate all hours in the date range
-        const currentDateTime = new Date(dateRange.from);
-        currentDateTime.setHours(0, 0, 0, 0);
-        
-        const endDateTime = new Date(dateRange.to);
-        endDateTime.setHours(23, 59, 59, 999);
-        
-        devLog('🕐 Hourly range: from', currentDateTime, 'to', endDateTime);
-        
-        // Create hourly structure for the entire date range
-        while (currentDateTime <= endDateTime) {
-          const dateStr = currentDateTime.toLocaleDateString('ca-ES', { day: '2-digit', month: '2-digit' });
-          const hourStr = currentDateTime.getHours().toString().padStart(2, '0') + ':00';
-          const hourKey = `${dateStr} ${hourStr}`;
+        if (dateRange?.from && dateRange?.to) {
+          // Generate all hours in the date range
+          const currentDateTime = new Date(dateRange.from);
+          currentDateTime.setHours(0, 0, 0, 0);
           
-          chartData.push({
-            hour: hourKey,
-            calls: 0,
-            isPeak: false,
-            type: 'hourly'
+          const endDateTime = new Date(dateRange.to);
+          endDateTime.setHours(23, 59, 59, 999);
+          
+          devLog('🕐 Hourly range: from', currentDateTime, 'to', endDateTime);
+          
+          // Create hourly structure for the entire date range
+          while (currentDateTime <= endDateTime) {
+            const dateStr = currentDateTime.toLocaleDateString('ca-ES', { day: '2-digit', month: '2-digit' });
+            const hourStr = currentDateTime.getHours().toString().padStart(2, '0') + ':00';
+            const hourKey = `${dateStr} ${hourStr}`;
+            
+            chartData.push({
+              hour: hourKey,
+              calls: 0,
+              isPeak: false,
+              type: 'hourly'
+            });
+            
+            // Move to next hour
+            currentDateTime.setHours(currentDateTime.getHours() + 1);
+          }
+          
+          devLog('🔢 Generated', chartData.length, 'hourly slots');
+        } else {
+          // For all-time view, group by date and hour from the actual data
+          const hourMap = new Map<string, number>();
+          
+          calls.forEach((call) => {
+            const callTime = new Date(call.created_at);
+            const dateStr = callTime.toLocaleDateString('ca-ES', { day: '2-digit', month: '2-digit' });
+            const hourStr = callTime.getHours().toString().padStart(2, '0') + ':00';
+            const hourKey = `${dateStr} ${hourStr}`;
+            
+            hourMap.set(hourKey, (hourMap.get(hourKey) || 0) + 1);
           });
           
-          // Move to next hour
-          currentDateTime.setHours(currentDateTime.getHours() + 1);
+          // Convert to chart data format
+          chartData = Array.from(hourMap.entries())
+            .map(([hour, calls]) => ({
+              hour,
+              calls,
+              isPeak: false,
+              type: 'hourly' as const
+            }))
+            .sort((a, b) => a.hour.localeCompare(b.hour));
+          
+          devLog('🔢 Generated', chartData.length, 'hourly slots from all data');
         }
         
-        devLog('🔢 Generated', chartData.length, 'hourly slots');
-        
-        // Now populate with actual call data
-        calls.forEach((call, index) => {
-          const callTime = new Date(call.created_at);
-          const dateStr = callTime.toLocaleDateString('ca-ES', { day: '2-digit', month: '2-digit' });
-          const hourStr = callTime.getHours().toString().padStart(2, '0') + ':00';
-          const hourKey = `${dateStr} ${hourStr}`;
-          
-          // Find matching slot and increment
-          const slot = chartData.find(d => d.hour === hourKey);
-          if (slot) {
-            slot.calls++;
-          }
-          if (index < 5) devLog('📞 Call', index, ':', callTime, '-> hourKey:', hourKey);
-        });
+        // Now populate with actual call data (only if we have a date range)
+        if (dateRange?.from && dateRange?.to) {
+          calls.forEach((call, index) => {
+            const callTime = new Date(call.created_at);
+            const dateStr = callTime.toLocaleDateString('ca-ES', { day: '2-digit', month: '2-digit' });
+            const hourStr = callTime.getHours().toString().padStart(2, '0') + ':00';
+            const hourKey = `${dateStr} ${hourStr}`;
+            
+            // Find matching slot and increment
+            const slot = chartData.find(d => d.hour === hourKey);
+            if (slot) {
+              slot.calls++;
+            }
+            if (index < 5) devLog('📞 Call', index, ':', callTime, '-> hourKey:', hourKey);
+          });
+        }
         
         devLog('📊 Hourly chart data generated:', chartData.length, 'points');
         devLog('📊 Sample hourly data:', chartData.slice(0, 5));
         devLog('📊 Total hourly calls:', chartData.reduce((sum, d) => sum + d.calls, 0));
         
       } else {
-        devLog('📅 Processing daily data...');
-        // Daily view - calculate calls per day
-        const daysBetween = Math.ceil((dateRange.to.getTime() - dateRange.from.getTime()) / (1000 * 60 * 60 * 24));
+        devLog('📅 Processing daily data...', dateRange ? 'with date range' : 'ALL TIME');
         
-        // Initialize all days in range
-        for (let i = 0; i <= daysBetween; i++) {
-          const day = new Date(dateRange.from);
-          day.setDate(day.getDate() + i);
-          const dayKey = day.toLocaleDateString('ca-ES', { weekday: 'short', day: 'numeric', month: 'short' });
-          volumeData[dayKey] = 0;
-        }
-        
-        calls.forEach((call) => {
-          const callTime = new Date(call.created_at);
-          const dayKey = callTime.toLocaleDateString('ca-ES', { weekday: 'short', day: 'numeric', month: 'short' });
-          if (volumeData.hasOwnProperty(dayKey)) {
-            volumeData[dayKey] = (volumeData[dayKey] || 0) + 1;
+        if (dateRange?.from && dateRange?.to) {
+          // Daily view - calculate calls per day
+          const daysBetween = Math.ceil((dateRange.to.getTime() - dateRange.from.getTime()) / (1000 * 60 * 60 * 24));
+          
+          // Initialize all days in range
+          for (let i = 0; i <= daysBetween; i++) {
+            const day = new Date(dateRange.from);
+            day.setDate(day.getDate() + i);
+            const dayKey = day.toLocaleDateString('ca-ES', { weekday: 'short', day: 'numeric', month: 'short' });
+            volumeData[dayKey] = 0;
           }
-        });
+          
+          calls.forEach((call) => {
+            const callTime = new Date(call.created_at);
+            const dayKey = callTime.toLocaleDateString('ca-ES', { weekday: 'short', day: 'numeric', month: 'short' });
+            if (volumeData.hasOwnProperty(dayKey)) {
+              volumeData[dayKey] = (volumeData[dayKey] || 0) + 1;
+            }
+          });
 
-        // Create daily structure for the date range
-        chartData = Array.from({ length: daysBetween + 1 }, (_, i) => {
-          const day = new Date(dateRange.from);
-          day.setDate(day.getDate() + i);
-          const dayKey = day.toLocaleDateString('ca-ES', { weekday: 'short', day: 'numeric', month: 'short' });
-          return {
-            hour: dayKey,
-            calls: volumeData[dayKey] || 0,
-            isPeak: false,
-            type: 'daily' as const
-          };
-        });
+          // Create daily structure for the date range
+          chartData = Array.from({ length: daysBetween + 1 }, (_, i) => {
+            const day = new Date(dateRange.from);
+            day.setDate(day.getDate() + i);
+            const dayKey = day.toLocaleDateString('ca-ES', { weekday: 'short', day: 'numeric', month: 'short' });
+            return {
+              hour: dayKey,
+              calls: volumeData[dayKey] || 0,
+              isPeak: false,
+              type: 'daily' as const
+            };
+          });
+        } else {
+          // For all-time view, group by day from the actual data
+          const dayMap = new Map<string, number>();
+          
+          calls.forEach((call) => {
+            const callTime = new Date(call.created_at);
+            const dayKey = callTime.toLocaleDateString('ca-ES', { weekday: 'short', day: 'numeric', month: 'short' });
+            
+            dayMap.set(dayKey, (dayMap.get(dayKey) || 0) + 1);
+          });
+          
+          // Convert to chart data format
+          chartData = Array.from(dayMap.entries())
+            .map(([day, calls]) => ({
+              hour: day,
+              calls,
+              isPeak: false,
+              type: 'daily' as const
+            }))
+            .sort((a, b) => a.hour.localeCompare(b.hour));
+          
+          devLog('🔢 Generated', chartData.length, 'daily slots from all data');
+        }
         
         devLog('📊 Daily chart data generated:', chartData.length, 'points');
         devLog('📊 Sample daily data:', chartData.slice(0, 3));
@@ -461,7 +521,9 @@ export const useTecnicsBcnCalls = (dateRange: { from: Date; to: Date }, options:
         avgCallDurationSeconds,
         validCallsWithDuration,
         validCallsWithCost,
-        dateRange: `${dateRange.from.toLocaleDateString()} - ${dateRange.to.toLocaleDateString()}`
+        dateRange: dateRange?.from && dateRange?.to 
+          ? `${dateRange.from.toLocaleDateString()} - ${dateRange.to.toLocaleDateString()}`
+          : 'ALL TIME'
       });
 
       setStats({

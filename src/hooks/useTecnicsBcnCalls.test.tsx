@@ -3,11 +3,27 @@ import { describe, it, expect, vi } from 'vitest';
 import { useTecnicsBcnCalls } from './useTecnicsBcnCalls';
 
 const { fromMock, channelMock, removeChannelMock } = vi.hoisted(() => {
-  const rangeMock = vi.fn().mockResolvedValue({ data: null, error: new Error('Fetch failed') });
-  const orderMock = vi.fn().mockReturnValue({ range: rangeMock });
-  const lteMock = vi.fn().mockReturnValue({ order: orderMock });
+  // Create a query object that can be both chained and awaited
+  const createQueryObject = (resolvesTo) => {
+    const queryObj = {
+      then: (resolve, reject) => resolvesTo.then ? resolvesTo.then(resolve, reject) : resolve(resolvesTo),
+      catch: (reject) => resolvesTo.catch ? resolvesTo.catch(reject) : queryObj,
+      finally: (callback) => resolvesTo.finally ? resolvesTo.finally(callback) : queryObj,
+    };
+    return queryObj;
+  };
+
+  const finalQueryMock = createQueryObject(Promise.resolve({ data: null, error: new Error('Fetch failed') }));
+  const lteMock = vi.fn().mockReturnValue(finalQueryMock);
   const gteMock = vi.fn().mockReturnValue({ lte: lteMock });
-  const selectMock = vi.fn().mockReturnValue({ gte: gteMock });
+  const rangeMock = vi.fn().mockReturnValue({ 
+    gte: gteMock,
+    then: finalQueryMock.then,
+    catch: finalQueryMock.catch,
+    finally: finalQueryMock.finally
+  });
+  const orderMock = vi.fn().mockReturnValue({ range: rangeMock });
+  const selectMock = vi.fn().mockReturnValue({ order: orderMock });
   const fromMock = vi.fn().mockReturnValue({ select: selectMock });
 
   const subscribeMock = vi.fn().mockReturnValue({});

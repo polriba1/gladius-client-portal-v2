@@ -180,6 +180,7 @@
     "quim": "Quim",
     "norma": "Norma",
     "helena": "Helena",
+    "yimmi": "Yimmi",
     "marc": "Marc",
     "anna": "Anna"
   },
@@ -308,7 +309,8 @@
     "days": "Dies",
     "hours": "Hores",
     "peak": "Pic",
-    "today": "Avui"
+    "today": "Avui",
+    "allTime": "Tot el temps"
   },
   "calls": {
     "title": "Registre de Trucades",
@@ -322,6 +324,7 @@
     "showingCalls": "Mostrant {{start}}-{{end}} de {{filtered}} trucades ({{total}} total)",
     "files": "{{count}} fitxers",
     "total": "Total",
+    "showAll": "Mostrar tot",
     "noCallsRegistered": "No s'han registrat trucades",
     "noCallsMatchingFilters": "No s'han trobat trucades que coincideixin amb els filtres aplicats. Prova d'ajustar els criteris de cerca.",
     "noCallsYet": "Encara no hi ha trucades registrades en aquest període. Les trucades apareixeran aquí un cop es comencin a registrar.",

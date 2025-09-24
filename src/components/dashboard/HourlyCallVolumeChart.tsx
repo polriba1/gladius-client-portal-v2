@@ -33,7 +33,7 @@ export default function HourlyCallVolumeChart({ data, loading, dateRange, onView
   };
   
   const getDateRangeDescription = () => {
-    if (!dateRange) return t('dashboard.hourlyDistribution');
+    if (!dateRange || !dateRange.from || !dateRange.to) return t('dashboard.hourlyDistribution');
     
     const isToday = dateRange.from.toDateString() === new Date().toDateString() &&
                    dateRange.to.toDateString() === new Date().toDateString();

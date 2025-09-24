@@ -1,12 +1,12 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { format } from 'date-fns';
 import { ca } from 'date-fns/locale';
-import { 
-  Clock, 
-  MapPin, 
-  Phone, 
-  User, 
-  AlertTriangle, 
+import {
+  Clock,
+  MapPin,
+  Phone,
+  User,
+  AlertTriangle,
   Calendar,
   Play,
   Eye,
@@ -58,12 +58,26 @@ const categorizeTicket = (ticket: MappedTicket): 'urgent' | 'breakdowns' | 'othe
   // RULE: Only "averia/avería" go to Avaries. Do this check first so nothing overrides it.
   const subject = ticket.subject?.toLowerCase() || '';
   const symptoms = ticket.symptoms?.toLowerCase() || '';
+  const originalSymptoms = ticket.symptoms || '';
   
   if (subject.includes('averia') || subject.includes('avería') || symptoms.includes('averia') || symptoms.includes('avería')) {
     return 'breakdowns';
   }
 
-  // Unfinished calls next (but NOT if it's an averia, handled above)
+  // Urgent by exact ticket types from Supabase
+  if (originalSymptoms === 'anular_cita' || originalSymptoms === 'urgente') {
+    return 'urgent';
+  }
+
+  // Urgent by subject/symptoms (urgente, urgent, anular, cancelar, etc.)
+  if (subject.includes('urgente') || subject.includes('urgent') || 
+      subject.includes('anular_cita') || subject.includes('cancelar') ||
+      symptoms.includes('urgente') || symptoms.includes('urgent') ||
+      symptoms.includes('anular_cita') || symptoms.includes('cancelar')) {
+    return 'urgent';
+  }
+
+  // Unfinished calls next (but NOT if it's an averia or urgente, handled above)
   if (ticket.call_recording_url && !['completed', 'closed', 'cancelled'].includes(ticket.status)) {
     return 'unfinished_calls';
   }
@@ -297,6 +311,8 @@ interface TabbedListViewProps {
   loading?: boolean;
   pagination: { page: number; limit: number };
   onPaginationChange: (pagination: { page: number; limit: number }) => void;
+  onActiveTabChange: (tab: string) => void;
+  onCurrentTotalChange: (total: number) => void;
 }
 
 export function TabbedListView({ 
@@ -306,7 +322,9 @@ export function TabbedListView({
   onStatusChange, 
   loading = false,
   pagination,
-  onPaginationChange
+  onPaginationChange,
+  onActiveTabChange,
+  onCurrentTotalChange
 }: TabbedListViewProps) {
   const [activeTab, setActiveTab] = useState('all');
   const { t } = useLanguage();
@@ -324,8 +342,16 @@ export function TabbedListView({
     tickets.forEach(ticket => {
       const category = categorizeTicket(ticket);
       categories.all.push(ticket);
+
+      // For urgent tickets, include them even if closed
       categories[category].push(ticket);
     });
+
+    // Count only Open urgent tickets for the red badge BEFORE pagination
+    // Count all urgent tickets that are not closed (open or in_progress)
+    const openUrgentCount = categories.urgent.filter(ticket => 
+      getSimpleStatus(ticket.status) !== 'closed'
+    ).length;
 
     // Apply pagination to each category
     const startIndex = (pagination.page - 1) * pagination.limit;
@@ -338,7 +364,8 @@ export function TabbedListView({
       },
       urgent: {
         tickets: categories.urgent.slice(startIndex, endIndex),
-        total: categories.urgent.length
+        total: categories.urgent.length,
+        openCount: openUrgentCount
       },
       breakdowns: {
         tickets: categories.breakdowns.slice(startIndex, endIndex),
@@ -355,10 +382,14 @@ export function TabbedListView({
     };
   }, [tickets, pagination]);
 
-  // Count only Open urgent tickets for the red badge
-  const openUrgentCount = categorizedAndPaginatedTickets.urgent.tickets.filter(ticket => 
-    getSimpleStatus(ticket.status) === 'open'
-  ).length;
+  // Notify parent of active tab and current total changes
+  useEffect(() => {
+    onActiveTabChange(activeTab);
+    onCurrentTotalChange(categorizedAndPaginatedTickets[activeTab]?.total || 0);
+  }, [activeTab, categorizedAndPaginatedTickets, onActiveTabChange, onCurrentTotalChange]);
+
+  // Get the open urgent count from the categorized data
+  const openUrgentCount = categorizedAndPaginatedTickets.urgent?.openCount || 0;
 
   if (loading) {
     return (

@@ -38,9 +38,9 @@ const Header = () => {
       <div className="container mx-auto px-6 py-4 flex justify-between items-center">
         <div className="flex items-center space-x-3">
           <div className="w-10 h-10 bg-primary rounded-lg flex items-center justify-center">
-            <span className="text-primary-foreground font-bold text-lg">G</span>
+            <span className="text-primary-foreground font-bold text-lg">T</span>
           </div>
-          <h1 className="text-2xl font-bold text-foreground">GladiusAI</h1>
+          <h1 className="text-2xl font-bold text-foreground">Tècnics BCN SAT</h1>
         </div>
         
         <div className="flex items-center space-x-2">

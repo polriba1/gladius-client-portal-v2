@@ -396,6 +396,8 @@ export default function ProfessionalCallLogTable({ data, loading, hideCost = fal
                   <SelectItem value="25">{t('calls.files', { count: 25 })}</SelectItem>
                   <SelectItem value="50">{t('calls.files', { count: 50 })}</SelectItem>
                   <SelectItem value="100">{t('calls.files', { count: 100 })}</SelectItem>
+                  <SelectItem value="1000">{t('calls.files', { count: 1000 })}</SelectItem>
+                  <SelectItem value={data.length.toString()}>{t('calls.showAll')}</SelectItem>
                 </SelectContent>
               </Select>
               <Badge variant="secondary" className="text-sm font-medium">

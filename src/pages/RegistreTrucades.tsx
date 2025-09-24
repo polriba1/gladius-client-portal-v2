@@ -32,26 +32,49 @@ const RegistreTrucades = () => {
       setLoading(true);
       devLog('🔄 Fetching ALL call logs from database...');
 
-      // Get ALL records - no limit to ensure we have everything
-      const { data, error } = await (supabase as unknown)
-        .from('call_logs_tecnics_bcn_sat')
-        .select('*')
-        .order('id', { ascending: false });
+      // Fetch ALL records with pagination to avoid 1000-row Supabase limit
+      const pageSize = 1000;
+      let from = 0;
+      let allData: CallLog[] = [];
 
-      devLog('📊 Database response:', { recordCount: data?.length, error });
+      while (true) {
+        const { data, error } = await supabase
+          .from('call_logs_tecnics_bcn_sat')
+          .select('*')
+          .order('id', { ascending: false })
+          .range(from, from + pageSize - 1);
 
-      if (error) {
-        console.error('❌ Database error:', error);
-        toast({
-          title: t('common.error'),
-          description: t('calls.loadError'),
-          variant: "destructive",
+        devLog('📊 Database page response:', { 
+          page: Math.floor(from / pageSize) + 1, 
+          recordCount: data?.length, 
+          error,
+          from,
+          to: from + pageSize - 1
         });
-        return;
+
+        if (error) {
+          console.error('❌ Database error:', error);
+          toast({
+            title: t('common.error'),
+            description: t('calls.loadError'),
+            variant: "destructive",
+          });
+          return;
+        }
+
+        const pageData = data || [];
+        allData = allData.concat(pageData);
+
+        // If we got less than pageSize records, we've reached the end
+        if (pageData.length < pageSize) {
+          break;
+        }
+
+        from += pageSize;
       }
 
-      setCallLogs(data || []);
-      devLog('✅ Loaded', data?.length || 0, 'total records');
+      devLog('✅ Loaded ALL records:', allData.length, 'total records');
+      setCallLogs(allData);
     } catch (error: unknown) {
       console.error('❌ Fetch error:', error);
       toast({

@@ -75,7 +75,7 @@ const computeDelta = (current: number, previous?: number | null) => {
 
 export const formatDuration = (seconds: number): string => {
   if (!seconds) {
-    return "00:00";
+    return "0 min 0s";
   }
   const totalMinutes = Math.floor(seconds / 60);
   const remainingSeconds = Math.round(seconds % 60);
@@ -83,12 +83,10 @@ export const formatDuration = (seconds: number): string => {
   if (seconds >= 3600) {
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
-    return `${hours}h ${minutes.toString().padStart(2, "0")}m`;
+    return `${hours}h ${minutes}m`;
   }
 
-  return `${totalMinutes.toString().padStart(2, "0")}:${remainingSeconds
-    .toString()
-    .padStart(2, "0")}`;
+  return `${totalMinutes} min ${remainingSeconds}s`;
 };
 
 export const buildReportMetrics = (
@@ -154,7 +152,7 @@ export const buildReportMetrics = (
         : ahtMetric.trend === "down"
         ? "up"
         : "flat",
-    hint: "Menor es mejor",
+    hint: "",
   });
 
   // Total time KPI

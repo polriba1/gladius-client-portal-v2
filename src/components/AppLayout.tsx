@@ -69,7 +69,7 @@ function AppLayoutHeader({ clientName, showAdminSwitcher, isAdmin, onBackToAdmin
     if (clientName?.toLowerCase().includes('salutdental')) {
       return 'Salutdental';
     }
-    return 'TecnicsBCN SAT';
+    return 'Tècnics BCN SAT';
   }, [clientName, loading, isInitialized]);
 
   return (

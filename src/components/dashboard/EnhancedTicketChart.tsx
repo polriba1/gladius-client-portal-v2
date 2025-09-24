@@ -144,7 +144,7 @@ export default function EnhancedTicketChart({ typeData, statusData, loading, dat
   };
 
   const getDateRangeDescription = () => {
-    if (!dateRange) return t('dashboard.categoryDistribution');
+    if (!dateRange || !dateRange.from || !dateRange.to) return t('dashboard.categoryDistribution');
     
     const isSameDay = dateRange.from.toDateString() === dateRange.to.toDateString();
     
@@ -159,7 +159,7 @@ export default function EnhancedTicketChart({ typeData, statusData, loading, dat
   };
 
   const getStatusDateRangeDescription = () => {
-    if (!dateRange) return t('dashboard.resolutionProgress');
+    if (!dateRange || !dateRange.from || !dateRange.to) return t('dashboard.resolutionProgress');
     
     const isSameDay = dateRange.from.toDateString() === dateRange.to.toDateString();
     

@@ -131,6 +131,7 @@
     "quim": "Quim",
     "norma": "Norma",
     "helena": "Helena",
+    "yimmi": "Yimmi",
     "marc": "Marc",
     "anna": "Anna"
   },
@@ -257,7 +258,8 @@
     "days": "Días",
     "hours": "Horas",
     "peak": "Pico",
-    "today": "Hoy"
+    "today": "Hoy",
+    "allTime": "Todo el tiempo"
   },
   "calls": {
     "title": "Registro de Llamadas",
@@ -271,6 +273,7 @@
     "showingCalls": "Mostrando {{start}}-{{end}} de {{filtered}} llamadas ({{total}} total)",
     "files": "{{count}} archivos",
     "total": "Total",
+    "showAll": "Mostrar todo",
     "noCallsRegistered": "No se han registrado llamadas",
     "noCallsMatchingFilters": "No se han encontrado llamadas que coincidan con los filtros aplicados. Prueba a ajustar los criterios de búsqueda.",
     "noCallsYet": "Aún no hay llamadas registradas en este período. Las llamadas aparecerán aquí una vez se empiecen a registrar.",

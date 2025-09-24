@@ -18,24 +18,56 @@ const Dashboard = () => {
   const { t } = useLanguage();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [urgentAlert, setUrgentAlert] = useState<{id: number, message: string, timestamp: Date} | null>(null);
-  const [dateRange, setDateRange] = useState(() => {
+  
+  // Initialize dateRange to last 31 days by default (rolling window from Aug 25 to Sep 25)
+  const getLast31DaysRange = () => {
     const today = new Date();
-    const oneMonthAgo = new Date();
-    oneMonthAgo.setMonth(today.getMonth() - 1);
+    const thirtyOneDaysAgo = new Date(today);
+    thirtyOneDaysAgo.setDate(today.getDate() - 31);
+    const endOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
+    return {
+      from: thirtyOneDaysAgo,
+      to: endOfToday
+    };
+  };
+  
+  const [dateRange, setDateRange] = useState<{ from: Date; to: Date }>(getLast31DaysRange);
 
-    // Ensure we're working with local dates and set proper time boundaries
-    const from = new Date(oneMonthAgo.getFullYear(), oneMonthAgo.getMonth(), oneMonthAgo.getDate(), 0, 0, 0, 0);
-    const to = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
+  // Update date range when day changes (for 31-day rolling window)
+  useEffect(() => {
+    const updateLast31DaysRange = () => {
+      const newRange = getLast31DaysRange();
+      setDateRange(newRange);
+    };
 
-    devLog('📅 Dashboard: Initial date range set:', {
-      from: from.toISOString(),
-      to: to.toISOString(),
-      fromLocal: from.toLocaleDateString(),
-      toLocal: to.toLocaleDateString()
-    });
+    // Update immediately if the current date range doesn't end with today
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const rangeEnd = new Date(dateRange.to.getFullYear(), dateRange.to.getMonth(), dateRange.to.getDate());
+    
+    if (today.getTime() !== rangeEnd.getTime()) {
+      updateLast31DaysRange();
+      return; // Don't set up interval if we just updated
+    }
 
-    return { from, to };
-  });
+    // Check every minute if the day has changed
+    const interval = setInterval(() => {
+      const currentNow = new Date();
+      const currentDay = currentNow.getDate();
+      const currentMonth = currentNow.getMonth();
+      const currentYear = currentNow.getFullYear();
+      
+      const rangeDay = dateRange.to.getDate();
+      const rangeMonth = dateRange.to.getMonth();
+      const rangeYear = dateRange.to.getFullYear();
+      
+      if (currentDay !== rangeDay || currentMonth !== rangeMonth || currentYear !== rangeYear) {
+        updateLast31DaysRange();
+      }
+    }, 60000); // Check every minute
+
+    return () => clearInterval(interval);
+  }, []); // Remove dateRange.to dependency to prevent frequent re-creation
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -191,9 +223,7 @@ const Dashboard = () => {
                 {t('dashboard.title')}
               </h1>
               <p className="text-slate-500">
-                {dateRange && dateRange.from && dateRange.to ?
-                  `${dateRange.from.toLocaleDateString(t('common.locale'))} - ${dateRange.to.toLocaleDateString(t('common.locale'))}` :
-                  ''}
+                {dateRange.from.toLocaleDateString(t('common.locale'))} - {dateRange.to.toLocaleDateString(t('common.locale'))}
               </p>
             </div>
 
@@ -216,7 +246,7 @@ const Dashboard = () => {
                 <Calendar className="w-4 h-4 text-slate-500" />
                 <input
                   type="date"
-                  value={dateRange && dateRange.from ? toInputDate(dateRange.from) : ''}
+                  value={toInputDate(dateRange.from)}
                   onChange={(e) => {
                     const dateValue = e.target.value;
                     if (dateValue) {
@@ -229,7 +259,7 @@ const Dashboard = () => {
                 <span className="text-slate-400">-</span>
                 <input
                   type="date"
-                  value={dateRange && dateRange.to ? toInputDate(dateRange.to) : ''}
+                  value={toInputDate(dateRange.to)}
                   onChange={(e) => {
                     const dateValue = e.target.value;
                     if (dateValue) {

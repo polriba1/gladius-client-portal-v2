@@ -41,7 +41,8 @@ interface SimplifiedTicketDetailProps {
 const assigneeOptions = [
   { value: 'Quim', label: 'Quim' },
   { value: 'Norma', label: 'Norma' },
-  { value: 'Helena', label: 'Helena' }
+  { value: 'Helena', label: 'Helena' },
+  { value: 'Yimmi', label: 'Yimmi' }
 ];
 
 export function SimplifiedTicketDetail({ 
