@@ -34,9 +34,9 @@ const Tickets = () => {
   
   const currentPagination = tabPaginations[activeTab];
   
-  const handlePaginationChange = (pagination: {page: number, limit: number}) => {
+  const handlePaginationChange = useCallback((pagination: {page: number, limit: number}) => {
     setTabPaginations(prev => ({...prev, [activeTab]: pagination}));
-  };
+  }, [activeTab]);
   
   const [globalFilters, setGlobalFilters] = useState<GlobalFilters>({
     search: '',
@@ -147,7 +147,7 @@ const Tickets = () => {
   // Reset to page 1 when filters change
   useEffect(() => {
     handlePaginationChange({ ...currentPagination, page: 1 });
-  }, [globalFilters, activeTab]); // Reset page when filters or tab changes
+  }, [globalFilters, activeTab, handlePaginationChange, currentPagination]); // Reset page when filters or tab changes
 
   const handleTicketClick = useCallback((ticket: MappedTicket) => {
     setSelectedTicket(ticket);

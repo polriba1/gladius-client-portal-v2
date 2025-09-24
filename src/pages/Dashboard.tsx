@@ -67,7 +67,7 @@ const Dashboard = () => {
     }, 60000); // Check every minute
 
     return () => clearInterval(interval);
-  }, []); // Remove dateRange.to dependency to prevent frequent re-creation
+  }, [dateRange.to]); // Include dateRange.to to satisfy ESLint
   const navigate = useNavigate();
   const { toast } = useToast();
 
