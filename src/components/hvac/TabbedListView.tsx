@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useMemo, useEffect } from 'react';
 import { format } from 'date-fns';
 import { ca } from 'date-fns/locale';
 import {
@@ -311,6 +311,7 @@ interface TabbedListViewProps {
   loading?: boolean;
   pagination: { page: number; limit: number };
   onPaginationChange: (pagination: { page: number; limit: number }) => void;
+  activeTab: string;
   onActiveTabChange: (tab: string) => void;
   onCurrentTotalChange: (total: number) => void;
 }
@@ -323,14 +324,14 @@ export function TabbedListView({
   loading = false,
   pagination,
   onPaginationChange,
+  activeTab,
   onActiveTabChange,
   onCurrentTotalChange
 }: TabbedListViewProps) {
-  const [activeTab, setActiveTab] = useState('all');
   const { t } = useLanguage();
 
-  // Categorize tickets and apply pagination per category
-  const categorizedAndPaginatedTickets = useMemo(() => {
+  // Categorize tickets WITHOUT pagination (pagination is handled by parent)
+  const categorizedTickets = useMemo(() => {
     const categories = {
       all: [] as MappedTicket[],
       urgent: [] as MappedTicket[],
@@ -342,54 +343,60 @@ export function TabbedListView({
     tickets.forEach(ticket => {
       const category = categorizeTicket(ticket);
       categories.all.push(ticket);
-
-      // For urgent tickets, include them even if closed
       categories[category].push(ticket);
     });
 
-    // Count only Open urgent tickets for the red badge BEFORE pagination
-    // Count all urgent tickets that are not closed (open or in_progress)
+    // Count only Open urgent tickets for the red badge
     const openUrgentCount = categories.urgent.filter(ticket => 
       getSimpleStatus(ticket.status) !== 'closed'
     ).length;
 
-    // Apply pagination to each category
-    const startIndex = (pagination.page - 1) * pagination.limit;
-    const endIndex = startIndex + pagination.limit;
-    
     return {
       all: {
-        tickets: categories.all.slice(startIndex, endIndex),
+        tickets: categories.all,
         total: categories.all.length
       },
       urgent: {
-        tickets: categories.urgent.slice(startIndex, endIndex),
+        tickets: categories.urgent,
         total: categories.urgent.length,
         openCount: openUrgentCount
       },
       breakdowns: {
-        tickets: categories.breakdowns.slice(startIndex, endIndex),
+        tickets: categories.breakdowns,
         total: categories.breakdowns.length
       },
       others: {
-        tickets: categories.others.slice(startIndex, endIndex),
+        tickets: categories.others,
         total: categories.others.length
       },
       unfinished_calls: {
-        tickets: categories.unfinished_calls.slice(startIndex, endIndex),
+        tickets: categories.unfinished_calls,
         total: categories.unfinished_calls.length
       }
     };
-  }, [tickets, pagination]);
+  }, [tickets]);
+
+  // Apply pagination to the current active tab's tickets
+  const paginatedTickets = useMemo(() => {
+    const categoryData = categorizedTickets[activeTab];
+    if (!categoryData) return { tickets: [], total: 0 };
+
+    const startIndex = (pagination.page - 1) * pagination.limit;
+    const endIndex = startIndex + pagination.limit;
+    
+    return {
+      tickets: categoryData.tickets.slice(startIndex, endIndex),
+      total: categoryData.total
+    };
+  }, [categorizedTickets, activeTab, pagination]);
 
   // Notify parent of active tab and current total changes
   useEffect(() => {
-    onActiveTabChange(activeTab);
-    onCurrentTotalChange(categorizedAndPaginatedTickets[activeTab]?.total || 0);
-  }, [activeTab, categorizedAndPaginatedTickets, onActiveTabChange, onCurrentTotalChange]);
+    onCurrentTotalChange(categorizedTickets[activeTab]?.total || 0);
+  }, [activeTab, categorizedTickets, onCurrentTotalChange]);
 
   // Get the open urgent count from the categorized data
-  const openUrgentCount = categorizedAndPaginatedTickets.urgent?.openCount || 0;
+  const openUrgentCount = categorizedTickets.urgent?.openCount || 0;
 
   if (loading) {
     return (
@@ -413,7 +420,7 @@ export function TabbedListView({
   }
 
   return (
-    <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+    <Tabs value={activeTab} onValueChange={onActiveTabChange} className="space-y-4">
       <TabsList className="grid w-full grid-cols-5">
         <TabsTrigger value="all" className="flex items-center gap-2">
           <ListIcon className="h-4 w-4" />
@@ -444,7 +451,7 @@ export function TabbedListView({
 
       <TabsContent value="all" className="space-y-0">
         <TicketList
-          tickets={categorizedAndPaginatedTickets.all.tickets}
+          tickets={paginatedTickets.tickets}
           onTicketClick={onTicketClick}
           onPlayAudio={onPlayAudio}
           onStatusChange={onStatusChange}
@@ -455,7 +462,7 @@ export function TabbedListView({
 
       <TabsContent value="urgent" className="space-y-0">
         <TicketList
-          tickets={categorizedAndPaginatedTickets.urgent.tickets}
+          tickets={paginatedTickets.tickets}
           onTicketClick={onTicketClick}
           onPlayAudio={onPlayAudio}
           onStatusChange={onStatusChange}
@@ -466,7 +473,7 @@ export function TabbedListView({
 
       <TabsContent value="breakdowns" className="space-y-0">
         <TicketList
-          tickets={categorizedAndPaginatedTickets.breakdowns.tickets}
+          tickets={paginatedTickets.tickets}
           onTicketClick={onTicketClick}
           onPlayAudio={onPlayAudio}
           onStatusChange={onStatusChange}
@@ -477,7 +484,7 @@ export function TabbedListView({
 
       <TabsContent value="others" className="space-y-0">
         <TicketList
-          tickets={categorizedAndPaginatedTickets.others.tickets}
+          tickets={paginatedTickets.tickets}
           onTicketClick={onTicketClick}
           onPlayAudio={onPlayAudio}
           onStatusChange={onStatusChange}
@@ -488,7 +495,7 @@ export function TabbedListView({
 
       <TabsContent value="unfinished_calls" className="space-y-0">
         <TicketList
-          tickets={categorizedAndPaginatedTickets.unfinished_calls.tickets}
+          tickets={paginatedTickets.tickets}
           onTicketClick={onTicketClick}
           onPlayAudio={onPlayAudio}
           onStatusChange={onStatusChange}

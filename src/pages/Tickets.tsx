@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -32,10 +32,16 @@ const Tickets = () => {
     unfinished_calls: {page: 1, limit: 25}
   });
   
-  const currentPagination = tabPaginations[activeTab];
+  const currentPagination = tabPaginations[activeTab] ?? { page: 1, limit: 25 };
   
   const handlePaginationChange = useCallback((pagination: {page: number, limit: number}) => {
-    setTabPaginations(prev => ({...prev, [activeTab]: pagination}));
+    setTabPaginations(prev => {
+      const current = prev[activeTab];
+      if (current && current.page === pagination.page && current.limit === pagination.limit) {
+        return prev;
+      }
+      return { ...prev, [activeTab]: pagination };
+    });
   }, [activeTab]);
   
   const [globalFilters, setGlobalFilters] = useState<GlobalFilters>({
@@ -144,10 +150,34 @@ const Tickets = () => {
     }
   }, [isAuthenticated, fetchTickets]);
 
-  // Reset to page 1 when filters change
+  const filtersKey = useMemo(() => JSON.stringify({
+    search: globalFilters.search,
+    statusFilter: globalFilters.statusFilter,
+    assignedFilter: globalFilters.assignedFilter,
+    startDate: globalFilters.startDate ? globalFilters.startDate.toISOString() : null,
+    endDate: globalFilters.endDate ? globalFilters.endDate.toISOString() : null,
+  }), [globalFilters.search, globalFilters.statusFilter, globalFilters.assignedFilter, globalFilters.startDate, globalFilters.endDate]);
+
+  const previousFiltersKey = useRef(filtersKey);
+
+  // Reset current tab page when filters change (but avoid loops)
   useEffect(() => {
-    handlePaginationChange({ ...currentPagination, page: 1 });
-  }, [globalFilters, activeTab, handlePaginationChange, currentPagination]); // Reset page when filters or tab changes
+    if (filtersKey === previousFiltersKey.current) {
+      return;
+    }
+    previousFiltersKey.current = filtersKey;
+
+    setTabPaginations(prev => {
+      const current = prev[activeTab];
+      if (!current || current.page === 1) {
+        return prev;
+      }
+      return {
+        ...prev,
+        [activeTab]: { ...current, page: 1 }
+      };
+    });
+  }, [filtersKey, activeTab]);
 
   const handleTicketClick = useCallback((ticket: MappedTicket) => {
     setSelectedTicket(ticket);
@@ -254,6 +284,7 @@ const Tickets = () => {
           loading={loading}
           pagination={currentPagination}
           onPaginationChange={handlePaginationChange}
+          activeTab={activeTab}
           onActiveTabChange={setActiveTab}
           onCurrentTotalChange={setCurrentTotal}
         />
