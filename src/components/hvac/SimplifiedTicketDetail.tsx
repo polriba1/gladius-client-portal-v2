@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { MappedTicket, TicketStatus } from '@/types/existingTickets';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { useTeamMembers } from '@/hooks/useTeamMembers';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -21,11 +22,13 @@ import {
   XCircle,
   Save,
   X,
-  Users
+  Users,
+  Settings
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { ca } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
+import { TeamMembersDialog } from './TeamMembersDialog';
 
 interface SimplifiedTicketDetailProps {
   ticket: MappedTicket | null;
@@ -38,13 +41,6 @@ interface SimplifiedTicketDetailProps {
 
 // Status options will use dynamic translations
 
-const assigneeOptions = [
-  { value: 'Quim', label: 'Quim' },
-  { value: 'Norma', label: 'Norma' },
-  { value: 'Helena', label: 'Helena' },
-  { value: 'Yimmi', label: 'Yimmi' }
-];
-
 export function SimplifiedTicketDetail({ 
   ticket, 
   open, 
@@ -54,10 +50,12 @@ export function SimplifiedTicketDetail({
   onNotesChange
 }: SimplifiedTicketDetailProps) {
   const { t } = useLanguage();
+  const { activeMembers } = useTeamMembers();
   const [currentSimpleStatus, setCurrentSimpleStatus] = useState<'open' | 'in_progress' | 'closed'>('open');
   const [currentAssignee, setCurrentAssignee] = useState<string>('unassigned');
   const [currentNotes, setCurrentNotes] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [showTeamMembersDialog, setShowTeamMembersDialog] = useState(false);
 
   // Update local state when ticket changes
   useEffect(() => {
@@ -262,11 +260,22 @@ export function SimplifiedTicketDetail({
                         </SelectTrigger>
                         <SelectContent className="bg-background border shadow-md z-50">
                           <SelectItem value="unassigned">No asignado</SelectItem>
-                          {assigneeOptions.map((option) => (
-                            <SelectItem key={option.value} value={option.value}>
-                              {option.label}
+                          {activeMembers.map((member) => (
+                            <SelectItem key={member.id} value={member.name}>
+                              {member.name}
                             </SelectItem>
                           ))}
+                          <div className="border-t mt-1 pt-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="w-full justify-start text-xs h-8 px-2"
+                              onClick={() => setShowTeamMembersDialog(true)}
+                            >
+                              <Settings className="w-3 h-3 mr-2" />
+                              Editar membres
+                            </Button>
+                          </div>
                         </SelectContent>
                       </Select>
                     </div>
@@ -385,6 +394,12 @@ export function SimplifiedTicketDetail({
           </Button>
         </div>
       </SheetContent>
+
+      <TeamMembersDialog 
+        open={showTeamMembersDialog} 
+        onOpenChange={setShowTeamMembersDialog}
+        onClose={() => window.location.reload()}
+      />
     </Sheet>
   );
 }

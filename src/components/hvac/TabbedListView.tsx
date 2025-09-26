@@ -346,8 +346,20 @@ export function TabbedListView({
       categories[category].push(ticket);
     });
 
-    // Count only Open urgent tickets for the red badge
+    // Count only Open tickets for each category
     const openUrgentCount = categories.urgent.filter(ticket => 
+      getSimpleStatus(ticket.status) !== 'closed'
+    ).length;
+
+    const openBreakdownsCount = categories.breakdowns.filter(ticket => 
+      getSimpleStatus(ticket.status) !== 'closed'
+    ).length;
+
+    const openOthersCount = categories.others.filter(ticket => 
+      getSimpleStatus(ticket.status) !== 'closed'
+    ).length;
+
+    const openUnfinishedCallsCount = categories.unfinished_calls.filter(ticket => 
       getSimpleStatus(ticket.status) !== 'closed'
     ).length;
 
@@ -363,15 +375,18 @@ export function TabbedListView({
       },
       breakdowns: {
         tickets: categories.breakdowns,
-        total: categories.breakdowns.length
+        total: categories.breakdowns.length,
+        openCount: openBreakdownsCount
       },
       others: {
         tickets: categories.others,
-        total: categories.others.length
+        total: categories.others.length,
+        openCount: openOthersCount
       },
       unfinished_calls: {
         tickets: categories.unfinished_calls,
-        total: categories.unfinished_calls.length
+        total: categories.unfinished_calls.length,
+        openCount: openUnfinishedCallsCount
       }
     };
   }, [tickets]);
@@ -395,8 +410,11 @@ export function TabbedListView({
     onCurrentTotalChange(categorizedTickets[activeTab]?.total || 0);
   }, [activeTab, categorizedTickets, onCurrentTotalChange]);
 
-  // Get the open urgent count from the categorized data
+  // Get the open counts from the categorized data
   const openUrgentCount = categorizedTickets.urgent?.openCount || 0;
+  const openBreakdownsCount = categorizedTickets.breakdowns?.openCount || 0;
+  const openOthersCount = categorizedTickets.others?.openCount || 0;
+  const openUnfinishedCallsCount = categorizedTickets.unfinished_calls?.openCount || 0;
 
   if (loading) {
     return (
@@ -430,7 +448,7 @@ export function TabbedListView({
           <AlertTriangle className="h-4 w-4" />
           {t('kanban.urgent')}
           {openUrgentCount > 0 && (
-            <Badge variant="destructive" className="text-xs min-w-[1.5rem] h-5 rounded-full bg-red-500 text-white">
+            <Badge variant="destructive" className="text-xs min-w-[1.5rem] h-5 rounded-full bg-red-500 hover:bg-red-600 text-white transition-colors cursor-pointer">
               {openUrgentCount}
             </Badge>
           )}
@@ -438,10 +456,20 @@ export function TabbedListView({
         <TabsTrigger value="breakdowns" className="flex items-center gap-2">
           <Wrench className="h-4 w-4" />
           {t('kanban.breakdowns')}
+          {openBreakdownsCount > 0 && (
+            <Badge variant="secondary" className="text-xs min-w-[1.5rem] h-5 rounded-full bg-orange-500 hover:bg-orange-600 text-white transition-colors cursor-pointer">
+              {openBreakdownsCount}
+            </Badge>
+          )}
         </TabsTrigger>
         <TabsTrigger value="others" className="flex items-center gap-2">
           <Clock className="h-4 w-4" />
           {t('kanban.others')}
+          {openOthersCount > 0 && (
+            <Badge variant="secondary" className="text-xs min-w-[1.5rem] h-5 rounded-full bg-blue-500 hover:bg-blue-600 text-white transition-colors cursor-pointer">
+              {openOthersCount}
+            </Badge>
+          )}
         </TabsTrigger>
         <TabsTrigger value="unfinished_calls" className="flex items-center gap-2">
           <PhoneCall className="h-4 w-4" />
