@@ -25,6 +25,7 @@
     "dashboard": "Panel de Control",
     "tickets": "Tickets",
     "calls": "Llamadas",
+    "calendario": "Calendario",
     "logout": "Cerrar Sesión"
   },
   "sidebar": {
@@ -301,6 +302,17 @@
     "breakdown": "Avería",
     "consultation": "Consulta",
     "general": "General"
+  },
+  "calendar": {
+    "title": "Calendario",
+    "description": "Vista del calendario para gestión de citas y eventos de STEL Order",
+    "loadEvents": "Cargar Eventos de Hoy",
+    "loading": "Cargando...",
+    "eventsLoaded": "Se cargaron {{count}} eventos para hoy.",
+    "apiKeyError": "Error de configuración. Contacta con el administrador para configurar la API de STEL Order.",
+    "loadError": "Error al cargar los eventos. Verifica la configuración de la API.",
+    "todayEvents": "Eventos de Hoy ({{count}})",
+    "noEvents": "No hay eventos para mostrar"
   },
   "auth": {
     "signIn": "Iniciar sesión",

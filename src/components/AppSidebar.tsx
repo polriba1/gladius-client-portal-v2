@@ -1,4 +1,4 @@
-import { Home, Phone, Ticket, Languages, LogOut, Shield, AlertTriangle, CheckCircle, BarChart3 } from "lucide-react";
+import { Home, Phone, Ticket, Languages, LogOut, Shield, AlertTriangle, CheckCircle, BarChart3, Calendar } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -77,6 +77,7 @@ export function AppSidebar() {
     : [
         { title: t('header.calls'), url: "/registre-trucades", icon: Phone, description: t('header.calls') },
         { title: t('header.tickets'), url: "/tickets", icon: Ticket, description: t('tickets.title') },
+        { title: t('header.calendario'), url: "/calendario", icon: Calendar, description: t('header.calendario') },
       ];
 
   useEffect(() => {

@@ -40,6 +40,7 @@
     "dashboard": "Tauler de Control",
     "tickets": "Tickets",
     "calls": "Trucades",
+    "calendario": "Calendari",
     "logout": "Tancar Sessió"
   },
   "reports": {
@@ -352,6 +353,17 @@
     "breakdown": "Avaria",
     "consultation": "Consulta",
     "general": "General"
+  },
+  "calendar": {
+    "title": "Calendari",
+    "description": "Vista del calendari per gestió de cites i esdeveniments de STEL Order",
+    "loadEvents": "Carregar Esdeveniments d'Avui",
+    "loading": "Carregant...",
+    "eventsLoaded": "S'han carregat {{count}} esdeveniments per avui.",
+    "apiKeyError": "Error de configuració. Contacta amb l'administrador per configurar l'API de STEL Order.",
+    "loadError": "Error en carregar els esdeveniments. Verifica la configuració de l'API.",
+    "todayEvents": "Esdeveniments d'Avui ({{count}})",
+    "noEvents": "No hi ha esdeveniments per mostrar"
   },
   "auth": {
     "signIn": "Inicia Sessió",

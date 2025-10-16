@@ -15,6 +15,7 @@ const SalutdentalCalls = lazy(() => import("./pages/SalutdentalCalls"));
 const InformesEstadisticas = lazy(() => import("./pages/InformesEstadisticas"));
 const RegistreTrucades = lazy(() => import("./pages/RegistreTrucades"));
 const Tickets = lazy(() => import("./pages/Tickets"));
+const Calendario = lazy(() => import("./pages/Calendario"));
 const ResetPassword = lazy(() => import("./pages/ResetPassword"));
 const AcceptInvite = lazy(() => import("./pages/AcceptInvite"));
 const NotFound = lazy(() => import("./pages/NotFound"));
@@ -46,6 +47,7 @@ const App = () => (
               <Route path="/informes-estadisticas" element={<AdminRedirect><AppLayout><InformesEstadisticas /></AppLayout></AdminRedirect>} />
               <Route path="/registre-trucades" element={<AdminRedirect><AppLayout><RegistreTrucades /></AppLayout></AdminRedirect>} />
               <Route path="/tickets" element={<AdminRedirect><AppLayout><Tickets /></AppLayout></AdminRedirect>} />
+              <Route path="/calendario" element={<AdminRedirect><AppLayout><Calendario /></AppLayout></AdminRedirect>} />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
             </Routes>
