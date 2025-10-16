@@ -795,7 +795,7 @@ const Calendario = () => {
                               },
                             }}
                             components={{
-                              event: ({ event }: any) => (
+                              event: ({ event }: { event: CalendarEvent }) => (
                                 <div className="text-xs p-1.5 font-medium overflow-hidden h-full">
                                   <div className="font-bold text-[12px] mb-0.5">
                                     {moment(event.start).format('HH:mm')} - {moment(event.end).format('HH:mm')}

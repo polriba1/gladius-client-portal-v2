@@ -1,8 +1,9 @@
+/// <reference types="https://deno.land/x/types/index.d.ts" />
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 
 console.log("STEL Events function loaded")
 
-serve(async (req) => {
+serve(async (req: Request) => {
   console.log(`[${new Date().toISOString()}] Request received: ${req.method} ${req.url}`)
 
   const corsHeaders = {
@@ -38,7 +39,7 @@ serve(async (req) => {
         const body = await req.json()
         limit = body.limit || '100'
         console.log('📨 Request body:', body)
-      } catch (e) {
+      } catch (_e) {
         console.log('📨 No JSON body or invalid JSON, checking query params')
         // Fallback to query parameters if no body
         const url = new URL(req.url)
