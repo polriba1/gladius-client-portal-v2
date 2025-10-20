@@ -464,13 +464,8 @@ const Calendario = () => {
 
       console.log('⚠️ Not in DEV mode or Vite proxy failed, using Supabase Edge Function');
       
-      // Fetch events from last month via Edge Function
-      const oneMonthAgo = new Date();
-      oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
-      const utcLastModificationDate = oneMonthAgo.toISOString().replace(/\.\d{3}Z$/, '+0000');
-      
-      console.log(`📅 Filtering events modified after: ${utcLastModificationDate}`);
-      
+      // Fetch the latest 500 events (no date filter)
+      // The API returns events ordered by most recent first
       const limit = 500;
       
       try {
@@ -479,7 +474,6 @@ const Calendario = () => {
         const { data, error } = await supabase.functions.invoke('stel-events', {
           body: {
             limit: limit.toString(),
-            'utc-last-modification-date': utcLastModificationDate,
           },
         });
 
@@ -490,7 +484,7 @@ const Calendario = () => {
         const allEvents = (data ?? []) as StelEvent[];
         console.log(`✅ Total events fetched: ${allEvents.length}`);
         
-        // NO filtering - show ALL events from ALL calendars and ALL technicians
+        // Filter out deleted events
         const validEvents = allEvents.filter(e => !e.deleted);
         
         console.log(`✅ Valid events (not deleted): ${validEvents.length}`);

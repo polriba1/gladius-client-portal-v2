@@ -33,25 +33,29 @@ serve(async (req: Request) => {
 
     // Get parameters from request body (sent by supabase.functions.invoke) or query params
     let limit = '100'
+    let utcLastModificationDate: string | null = null
 
     if (req.method === 'POST') {
       try {
         const body = await req.json()
         limit = body.limit || '100'
+        utcLastModificationDate = body['utc-last-modification-date'] || null
         console.log('📨 Request body:', body)
       } catch (_e) {
         console.log('📨 No JSON body or invalid JSON, checking query params')
         // Fallback to query parameters if no body
         const url = new URL(req.url)
         limit = url.searchParams.get('limit') || '100'
+        utcLastModificationDate = url.searchParams.get('utc-last-modification-date')
       }
     } else {
       // For GET requests, use query parameters
       const url = new URL(req.url)
       limit = url.searchParams.get('limit') || '100'
+      utcLastModificationDate = url.searchParams.get('utc-last-modification-date')
     }
 
-    console.log('🔧 Edge Function Parameters:', { limit })
+    console.log('🔧 Edge Function Parameters:', { limit, utcLastModificationDate })
 
     // Build the STEL Order API URL
     let stelUrl = 'https://app.stelorder.com/app/events'
@@ -59,6 +63,10 @@ serve(async (req: Request) => {
 
     if (limit) {
       params.append('limit', limit)
+    }
+
+    if (utcLastModificationDate) {
+      params.append('utc-last-modification-date', utcLastModificationDate)
     }
 
     if (params.toString()) {
