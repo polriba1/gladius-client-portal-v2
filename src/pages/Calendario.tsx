@@ -821,7 +821,7 @@ const Calendario = () => {
                             endAccessor="end"
                             date={currentDate}
                             onNavigate={setCurrentDate}
-                            view="day"
+                            defaultView="day"
                             views={['day']}
                             step={30}
                             timeslots={2}
