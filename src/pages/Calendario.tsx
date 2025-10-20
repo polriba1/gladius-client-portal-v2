@@ -313,17 +313,6 @@ const Calendario = () => {
           // Subjects like: "1616 TEC090 ANOMALIA 42", "1697 TEC 095 LLAMAR ANTES", etc.
           const techMatch = event.subject?.match(/TEC\s*(\d+)/i);
           const technicianId = techMatch ? `TEC${techMatch[1]}` : 'Sin Asignar';
-          
-          console.log('📅 Event time parsing:', {
-            id: event.id,
-            subject: event.subject,
-            technicianExtracted: technicianId,
-            eventTypeId: event['event-type-id'],
-            startOriginal: event['start-date'],
-            startParsed: startDate.toLocaleString('es-ES'),
-            endOriginal: event['end-date'],
-            endParsed: endDate.toLocaleString('es-ES')
-          });
 
           return {
             id: event.id,
@@ -407,10 +396,29 @@ const Calendario = () => {
           }))
         });
 
-        toast({
-          title: 'Eventos Cargados',
-          description: `${calendarEvents.length} eventos de ${schedules.length} técnicos`,
-        });
+        // Show date range of loaded events
+        if (calendarEvents.length > 0) {
+          const dates = calendarEvents.map(e => moment(e.start).format('YYYY-MM-DD')).sort();
+          const earliestDate = dates[0];
+          const latestDate = dates[dates.length - 1];
+          
+          console.log('📅 Events Date Range:', {
+            earliest: earliestDate,
+            latest: latestDate,
+            total: calendarEvents.length
+          });
+          
+          toast({
+            title: 'Eventos Cargados',
+            description: `${calendarEvents.length} eventos de ${schedules.length} técnicos (${earliestDate} a ${latestDate})`,
+          });
+        } else {
+          toast({
+            title: 'Sin Eventos',
+            description: 'No se encontraron eventos en la respuesta de la API',
+            variant: 'destructive',
+          });
+        }
       };
 
       if (import.meta.env.DEV) {
@@ -632,6 +640,23 @@ const Calendario = () => {
         </CardContent>
       </Card>
 
+      {/* Info Card - Date Range Available */}
+      {events.length > 0 && (
+        <Card className="shadow-sm border-blue-200 bg-blue-50">
+          <CardContent className="py-3">
+            <div className="flex items-center gap-2 text-sm">
+              <CalendarIcon className="h-4 w-4 text-blue-600" />
+              <span className="font-medium text-blue-900">
+                Eventos disponibles: {moment(events.map(e => e.start).sort()[0]).format('DD/MM/YYYY')} 
+                {' → '}
+                {moment(events.map(e => e.start).sort()[events.length - 1]).format('DD/MM/YYYY')}
+                {' '}({events.length} eventos cargados)
+              </span>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Multiple Technician Calendars - Horizontal Scroll View */}
       {technicianSchedules.length > 0 && (
         <div className="space-y-4">
@@ -642,26 +667,49 @@ const Calendario = () => {
           
           {/* Horizontal scrollable container */}
           <div className="relative">
+            {(() => {
+              const schedulesWithEvents = technicianSchedules
+                .map((schedule) => {
+                  const todayEvents = schedule.events.filter(event => {
+                    const eventDate = moment(event.start).format('YYYY-MM-DD');
+                    const selectedDate = moment(currentDate).format('YYYY-MM-DD');
+                    return eventDate === selectedDate;
+                  });
+                  return {
+                    ...schedule,
+                    todayEventsCount: todayEvents.length,
+                    todayEvents: todayEvents
+                  };
+                })
+                .filter(schedule => schedule.todayEventsCount > 0);
+
+              if (schedulesWithEvents.length === 0) {
+                return (
+                  <Card className="shadow-elegant border-orange-200 bg-orange-50">
+                    <CardContent className="py-8">
+                      <div className="text-center space-y-3">
+                        <div className="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center mx-auto">
+                          <CalendarIcon className="h-8 w-8 text-orange-600" />
+                        </div>
+                        <div>
+                          <h3 className="text-lg font-semibold text-orange-900">Sin eventos para esta fecha</h3>
+                          <p className="text-orange-700 mt-1">
+                            No hay eventos programados para {moment(currentDate).format('DD/MM/YYYY')}
+                          </p>
+                          <p className="text-sm text-orange-600 mt-2">
+                            Usa los botones de navegación para explorar otras fechas
+                          </p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              }
+
+              return (
             <div className="overflow-x-auto pb-4">
               <div className="flex gap-4" style={{ minWidth: 'min-content' }}>
-                {technicianSchedules
-                  .map((schedule) => {
-                    // Filter events for the selected date
-                    const todayEvents = schedule.events.filter(event => {
-                      const eventDate = moment(event.start).format('YYYY-MM-DD');
-                      const selectedDate = moment(currentDate).format('YYYY-MM-DD');
-                      return eventDate === selectedDate;
-                    });
-                    
-                    return {
-                      ...schedule,
-                      todayEventsCount: todayEvents.length,
-                      todayEvents: todayEvents
-                    };
-                  })
-                  // ONLY show technicians with events on the selected date
-                  .filter(schedule => schedule.todayEventsCount > 0)
-                  .map((schedule) => {
+                {schedulesWithEvents.map((schedule) => {
                   
                   if (schedule.events.length > 0) {
                     console.log('🗓️ Technician Calendar:', {
@@ -820,23 +868,18 @@ const Calendario = () => {
                   );
                 })}
               </div>
-            </div>
-            
-            {/* Scroll hint */}
-            {technicianSchedules.filter(s => {
-              const todayEvents = s.events.filter(event => {
-                const eventDate = moment(event.start).format('YYYY-MM-DD');
-                const selectedDate = moment(currentDate).format('YYYY-MM-DD');
-                return eventDate === selectedDate;
-              });
-              return todayEvents.length > 0;
-            }).length > 4 && (
-              <div className="absolute right-0 top-1/2 -translate-y-1/2 pointer-events-none">
-                <div className="bg-gradient-to-l from-background to-transparent h-full w-12 flex items-center justify-end pr-2">
-                  <ChevronRight className="h-6 w-6 text-muted-foreground animate-pulse" />
+              
+              {/* Scroll hint */}
+              {schedulesWithEvents.length > 4 && (
+                <div className="absolute right-0 top-1/2 -translate-y-1/2 pointer-events-none">
+                  <div className="bg-gradient-to-l from-background to-transparent h-full w-12 flex items-center justify-end pr-2">
+                    <ChevronRight className="h-6 w-6 text-muted-foreground animate-pulse" />
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
+            );
+            })()}
           </div>
         </div>
       )}
