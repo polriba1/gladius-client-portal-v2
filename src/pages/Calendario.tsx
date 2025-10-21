@@ -485,25 +485,12 @@ const Calendario = () => {
         console.log(`✅ Found client in /potentialClients: ${client.name || client['legal-name']} (ID: ${client.id})`);
         return client;
       } else {
-        // PROD: use Supabase Edge Functions
-        // Try 1: Regular clients endpoint
-        console.log(`📡 [PROD 1/2] Trying stel-client Edge Function for client ${clientId}`);
-        let { data, error } = await supabase.functions.invoke('stel-client', {
+        // PROD: use Supabase Edge Function
+        // stel-client already handles fallback to potentialClients internally
+        console.log(`📡 [PROD] Invoking stel-client Edge Function for client ${clientId}`);
+        const { data, error } = await supabase.functions.invoke('stel-client', {
           body: { clientId },
         });
-        
-        // If stel-client returns 404 or error, try stel-potential-client
-        if (error || (data && data.error && data.error.includes("not found"))) {
-          console.log(`⚠️ Client not found in stel-client, trying stel-potential-client...`);
-          console.log(`📡 [PROD 2/2] Trying stel-potential-client Edge Function for client ${clientId}`);
-          
-          const potentialResult = await supabase.functions.invoke('stel-potential-client', {
-            body: { clientId },
-          });
-          
-          data = potentialResult.data;
-          error = potentialResult.error;
-        }
         
         if (error) {
           console.error(`❌ Edge function error:`, error);
