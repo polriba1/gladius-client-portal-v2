@@ -88,32 +88,84 @@ const Calendario = () => {
   const { toast } = useToast();
 
   // Helper function to get color for technician
-  const getColorForCalendar = (technicianName: string): string => {
-    const colors = [
-      'hsl(210 85% 45%)',   // Blue
-      'hsl(142 76% 36%)',   // Green
-      'hsl(38 92% 50%)',    // Orange
-      'hsl(271 91% 65%)',   // Purple
-      'hsl(0 84% 60%)',     // Red
-      'hsl(173 80% 40%)',   // Teal
-      'hsl(340 82% 52%)',   // Pink
-      'hsl(45 93% 47%)',    // Yellow/Gold
-      'hsl(199 89% 48%)',   // Cyan
-      'hsl(162 63% 41%)',   // Teal-Green
-    ];
-    
-    if (technicianName === 'Sin Asignar') {
-      return 'hsl(210 12% 47%)';
+  // Persistent color mapping stored in localStorage so each technician keeps the same color
+  const COLOR_STORAGE_KEY = 'gladius_tech_colors_v2';
+
+  const PALETTE = [
+    'hsl(210 85% 45%)', // Blue
+    'hsl(142 76% 36%)', // Green
+    'hsl(38 92% 50%)',  // Orange
+    'hsl(271 91% 65%)', // Purple
+    'hsl(0 84% 60%)',   // Red
+    'hsl(173 80% 40%)', // Teal
+    'hsl(340 82% 52%)', // Pink
+    'hsl(45 93% 47%)',  // Yellow/Gold
+    'hsl(199 89% 48%)', // Cyan
+    'hsl(162 63% 41%)', // Teal-Green
+    'hsl(25 90% 55%)',  // Amber
+    'hsl(285 70% 60%)', // Magenta
+  ];
+
+  const loadColorMap = (): Record<string, string> => {
+    try {
+      if (typeof window === 'undefined') return {};
+      const raw = localStorage.getItem(COLOR_STORAGE_KEY);
+      if (!raw) return {};
+      return JSON.parse(raw);
+    } catch (_e) {
+      return {};
     }
-    
-    // Extract number from TEC080, TEC090, etc. and use modulo for color
-    const match = technicianName.match(/TEC(\d+)/i);
+  };
+
+  const saveColorMap = (map: Record<string, string>) => {
+    try {
+      if (typeof window === 'undefined') return;
+      localStorage.setItem(COLOR_STORAGE_KEY, JSON.stringify(map));
+    } catch (_e) {
+      // ignore
+    }
+  };
+
+  const hashString = (s: string) => {
+    let h = 0;
+    for (let i = 0; i < s.length; i++) {
+      h = (h << 5) - h + s.charCodeAt(i);
+      h |= 0;
+    }
+    return Math.abs(h);
+  };
+
+  const getColorForCalendar = (technicianName: string): string => {
+    if (!technicianName) return 'hsl(210 12% 47%)';
+
+    if (technicianName === 'Sin Asignar') return 'hsl(210 12% 47%)';
+
+    const map = loadColorMap();
+    if (map[technicianName]) return map[technicianName];
+
+    // Prefer mapping by TEC number if present to make deterministic for known techs
+    const match = technicianName.match(/TEC\s*(\d+)/i);
+    let color = undefined as string | undefined;
     if (match) {
       const num = parseInt(match[1]);
-      return colors[num % colors.length];
+      color = PALETTE[num % PALETTE.length];
     }
-    
-    return colors[0];
+
+    // If no TEC pattern or color still undefined, pick first unused palette color
+    if (!color) {
+      const used = new Set(Object.values(map));
+      color = PALETTE.find(c => !used.has(c));
+    }
+
+    // Fallback: deterministic hash-based HSL if palette exhausted
+    if (!color) {
+      const h = hashString(technicianName) % 360;
+      color = `hsl(${h} 70% 50%)`;
+    }
+
+    map[technicianName] = color;
+    saveColorMap(map);
+    return color;
   };
 
   // Colors for different technicians (for backward compatibility)
