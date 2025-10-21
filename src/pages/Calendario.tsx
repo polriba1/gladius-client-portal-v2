@@ -495,14 +495,21 @@ const Calendario = () => {
           throw error;
         }
         
-        console.log(`✅ Client data received:`, data);
-        const client = Array.isArray(data) ? data[0] : data;
+        console.log(`✅ Client data received from Edge Function:`, data);
         
-        if (!client) {
-          throw new Error(`Client ${clientId} not found in response`);
+        // Check if Edge Function returned an error response (e.g., { error: "...", clientId: "..." })
+        if (data && data.error) {
+          console.error(`❌ Edge function returned error:`, data.error);
+          throw new Error(data.error);
         }
         
-        // Edge function should return the client data directly
+        const client = Array.isArray(data) ? data[0] : data;
+        
+        if (!client || !client.id) {
+          throw new Error(`Client ${clientId} not found or invalid response`);
+        }
+        
+        console.log(`✅ Found client: ${client.name || client['legal-name']} (ID: ${client.id})`);
         return client;
       }
     } catch (error) {
@@ -551,14 +558,21 @@ const Calendario = () => {
           throw error;
         }
         
-        console.log(`✅ Employee data received:`, data);
-        const employee = Array.isArray(data) ? data[0] : data;
+        console.log(`✅ Employee data received from Edge Function:`, data);
         
-        if (!employee) {
-          throw new Error(`Employee ${employeeId} not found in response`);
+        // Check if Edge Function returned an error response
+        if (data && data.error) {
+          console.error(`❌ Edge function returned error:`, data.error);
+          throw new Error(data.error);
         }
         
-        // Edge function should return the employee data directly
+        const employee = Array.isArray(data) ? data[0] : data;
+        
+        if (!employee || !employee.id) {
+          throw new Error(`Employee ${employeeId} not found or invalid response`);
+        }
+        
+        console.log(`✅ Found employee: ${employee.name} ${employee.surname} (ID: ${employee.id})`);
         return employee;
       }
     } catch (error) {
@@ -597,7 +611,7 @@ const Calendario = () => {
         
         return address;
       } else {
-        // PROD: use Supabase Edge Function (would need to create stel-address function)
+        // PROD: use Supabase Edge Function
         const { data, error } = await supabase.functions.invoke('stel-address', {
           body: { addressId },
         });
@@ -607,12 +621,21 @@ const Calendario = () => {
           throw error;
         }
         
-        const address = Array.isArray(data) ? data[0] : data;
+        console.log(`✅ Address data received from Edge Function:`, data);
         
-        if (!address) {
-          throw new Error(`Address ${addressId} not found in response`);
+        // Check if Edge Function returned an error response
+        if (data && data.error) {
+          console.error(`❌ Edge function returned error:`, data.error);
+          throw new Error(data.error);
         }
         
+        const address = Array.isArray(data) ? data[0] : data;
+        
+        if (!address || !address.id) {
+          throw new Error(`Address ${addressId} not found or invalid response`);
+        }
+        
+        console.log(`✅ Found address: ${address['address-data']} (ID: ${address.id})`);
         return address;
       }
     } catch (error) {
