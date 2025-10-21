@@ -932,18 +932,39 @@ const Calendario = () => {
         
         for (const employeeId of uniqueAssigneeIds) {
           try {
-            const employeeUrl = `/api/stel/app/employees/${employeeId}`;
-            const response = await fetch(employeeUrl, {
-              headers: {
-                APIKEY: import.meta.env.VITE_STEL_API_KEY,
-              },
-            });
+            let employee = null;
             
-            if (response.ok) {
-              const employeeData = await response.json();
-              // API returns an array with one employee object
-              const employee = Array.isArray(employeeData) ? employeeData[0] : employeeData;
+            if (import.meta.env.DEV) {
+              // DEV: use Vite proxy
+              const employeeUrl = `/api/stel/app/employees/${employeeId}`;
+              const response = await fetch(employeeUrl, {
+                headers: {
+                  APIKEY: import.meta.env.VITE_STEL_API_KEY,
+                },
+              });
               
+              if (response.ok) {
+                const employeeData = await response.json();
+                employee = Array.isArray(employeeData) ? employeeData[0] : employeeData;
+              } else if (response.status === 404) {
+                console.warn(`⚠️ Employee ${employeeId} not found (404)`);
+                continue;
+              }
+            } else {
+              // PROD: use Supabase Edge Function
+              const { data, error } = await supabase.functions.invoke('stel-employee', {
+                body: { employeeId: employeeId.toString() },
+              });
+              
+              if (error) {
+                console.warn(`⚠️ Error fetching employee ${employeeId}:`, error);
+                continue;
+              }
+              
+              employee = Array.isArray(data) ? data[0] : data;
+            }
+            
+            if (employee) {
               console.log(`👤 Employee ${employeeId}:`, employee);
               
               // Employee.name contains "TEC095 " or similar
@@ -955,11 +976,9 @@ const Calendario = () => {
               } else {
                 console.warn(`⚠️ Employee ${employeeId} has no TEC in name: "${employee?.name}"`);
               }
-            } else {
-              console.warn(`❌ Failed to fetch employee ${employeeId}: HTTP ${response.status}`);
             }
           } catch (error) {
-            console.warn(`❌ Exception fetching employee ${employeeId}:`, error);
+            console.warn(`⚠️ Exception fetching employee ${employeeId}:`, error);
           }
         }
 

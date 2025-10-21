@@ -23,17 +23,33 @@ serve(async (req: Request) => {
       })
     }
 
+    console.log(`Fetching employee: ${employeeId}`)
+
     const response = await fetch(`https://app.stelorder.com/app/employees/${employeeId}`, {
       headers: { APIKEY: stelApiKey },
     })
 
-    if (!response.ok) throw new Error(`API error: ${response.status}`)
+    if (response.status === 404) {
+      console.log(`Employee ${employeeId} not found (404)`)
+      return new Response(JSON.stringify({ error: "Employee not found", employeeId }), {
+        status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" }
+      })
+    }
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error(`STEL API error ${response.status}: ${errorText}`)
+      throw new Error(`API error: ${response.status}`)
+    }
 
     const data = await response.json()
+    console.log(`Employee ${employeeId} fetched successfully`)
+    
     return new Response(JSON.stringify(data), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     })
   } catch (error) {
+    console.error("Error in stel-employee:", error)
     return new Response(
       JSON.stringify({ error: error instanceof Error ? error.message : "Error" }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }

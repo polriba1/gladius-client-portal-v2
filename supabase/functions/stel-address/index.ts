@@ -1,4 +1,6 @@
-﻿import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
+
+console.log("STEL Address function loaded")
 
 serve(async (req: Request) => {
   const corsHeaders = {
@@ -16,31 +18,22 @@ serve(async (req: Request) => {
     const stelApiKey = Deno.env.get("STEL_API_KEY")
     if (!stelApiKey) throw new Error("STEL_API_KEY not set")
 
-    const { clientId } = await req.json()
-    if (!clientId) {
-      return new Response(JSON.stringify({ error: "clientId required" }), {
+    const { addressId } = await req.json()
+    if (!addressId) {
+      return new Response(JSON.stringify({ error: "addressId required" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" }
       })
     }
 
-    console.log(`Fetching client: ${clientId}`)
+    console.log(`Fetching address: ${addressId}`)
 
-    // Try regular clients endpoint first
-    let response = await fetch(`https://app.stelorder.com/app/clients/${clientId}`, {
+    const response = await fetch(`https://app.stelorder.com/app/addresses/${addressId}`, {
       headers: { APIKEY: stelApiKey },
     })
 
-    // If 404, try potentialClients endpoint
     if (response.status === 404) {
-      console.log(`Client ${clientId} not found in /clients, trying /potentialClients`)
-      response = await fetch(`https://app.stelorder.com/app/potentialClients/${clientId}`, {
-        headers: { APIKEY: stelApiKey },
-      })
-    }
-
-    if (response.status === 404) {
-      console.log(`Client ${clientId} not found (404)`)
-      return new Response(JSON.stringify({ error: "Client not found", clientId }), {
+      console.log(`Address ${addressId} not found (404)`)
+      return new Response(JSON.stringify({ error: "Address not found", addressId }), {
         status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" }
       })
     }
@@ -52,13 +45,13 @@ serve(async (req: Request) => {
     }
 
     const data = await response.json()
-    console.log(`Client ${clientId} fetched successfully`)
+    console.log(`Address ${addressId} fetched successfully`)
     
     return new Response(JSON.stringify(data), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     })
   } catch (error) {
-    console.error("Error in stel-client:", error)
+    console.error("Error in stel-address:", error)
     return new Response(
       JSON.stringify({ error: error instanceof Error ? error.message : "Error" }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
