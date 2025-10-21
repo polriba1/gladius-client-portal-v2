@@ -485,10 +485,25 @@ const Calendario = () => {
         console.log(`✅ Found client in /potentialClients: ${client.name || client['legal-name']} (ID: ${client.id})`);
         return client;
       } else {
-        // PROD: use Supabase Edge Function
-        const { data, error } = await supabase.functions.invoke('stel-client', {
+        // PROD: use Supabase Edge Functions
+        // Try 1: Regular clients endpoint
+        console.log(`📡 [PROD 1/2] Trying stel-client Edge Function for client ${clientId}`);
+        let { data, error } = await supabase.functions.invoke('stel-client', {
           body: { clientId },
         });
+        
+        // If stel-client returns 404 or error, try stel-potential-client
+        if (error || (data && data.error && data.error.includes("not found"))) {
+          console.log(`⚠️ Client not found in stel-client, trying stel-potential-client...`);
+          console.log(`📡 [PROD 2/2] Trying stel-potential-client Edge Function for client ${clientId}`);
+          
+          const potentialResult = await supabase.functions.invoke('stel-potential-client', {
+            body: { clientId },
+          });
+          
+          data = potentialResult.data;
+          error = potentialResult.error;
+        }
         
         if (error) {
           console.error(`❌ Edge function error:`, error);
@@ -922,8 +937,19 @@ const Calendario = () => {
           totalIncidents: stelIncidents.length
         });
 
-        // Filter out deleted incidents (if deleted field exists)
-        const validIncidents = stelIncidents.filter((incident) => !incident.deleted);
+        // Filter out deleted incidents and I-PRT incidents
+        const validIncidents = stelIncidents.filter((incident) => {
+          // Exclude deleted incidents
+          if (incident.deleted) return false;
+          
+          // Exclude I-PRT incidents (reference starts with "I-PRT")
+          if (incident.reference && incident.reference.startsWith('I-PRT')) {
+            console.log(`🚫 Excluding I-PRT incident: ${incident.reference}`);
+            return false;
+          }
+          
+          return true;
+        });
 
         console.log('📅 Filtered Incidents:', {
           total: stelIncidents.length,
@@ -1010,8 +1036,8 @@ const Calendario = () => {
         // Map incidents to calendar events with real TEC codes
         const calendarEvents: CalendarEvent[] = validIncidents.map((incident, index) => {
           // Incidents have a single 'date' field: "2024-09-30T09:00:00+0000"
-          // Parse as UTC and convert to local time using moment for consistency
-          const startMoment = moment.utc(incident.date).local();
+          // The API already sends dates in CET, so we parse them as-is without timezone conversion
+          const startMoment = moment(incident.date);
           const startDate = startMoment.toDate();
           
           // incident.length is in MINUTES (e.g., length: 60 = 1 hour)
@@ -1167,8 +1193,19 @@ const Calendario = () => {
           oneMonthAheadDate.setMonth(oneMonthAheadDate.getMonth() + 1);
           
           const validIncidents = allIncidents.filter((incident) => {
+            // Exclude deleted incidents
             if (incident.deleted) return false;
+            
+            // Exclude incidents without date
             if (!incident.date) return false;
+            
+            // Exclude I-PRT incidents (reference starts with "I-PRT")
+            if (incident.reference && incident.reference.startsWith('I-PRT')) {
+              console.log(`🚫 Excluding I-PRT incident: ${incident.reference}`);
+              return false;
+            }
+            
+            // Filter by date range
             const incidentDate = new Date(incident.date);
             return incidentDate >= oneMonthAgoDate && incidentDate <= oneMonthAheadDate;
           });

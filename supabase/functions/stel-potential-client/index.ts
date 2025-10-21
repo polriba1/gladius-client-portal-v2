@@ -1,4 +1,4 @@
-﻿import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 
 serve(async (req: Request) => {
   const corsHeaders = {
@@ -8,7 +8,7 @@ serve(async (req: Request) => {
   }
 
   if (req.method === "OPTIONS") {
-    console.log("Handling OPTIONS preflight request")
+    console.log("[stel-potential-client] Handling OPTIONS preflight request")
     return new Response("ok", { headers: corsHeaders, status: 200 })
   }
 
@@ -23,47 +23,38 @@ serve(async (req: Request) => {
       })
     }
 
-    console.log(`[stel-client] Fetching client: ${clientId}`)
+    console.log(`[stel-potential-client] Fetching potential client: ${clientId}`)
 
-    // Try regular clients endpoint first
-    const clientsUrl = `https://app.stelorder.com/app/clients/${clientId}`
-    console.log(`[stel-client] Step 1: Trying /clients endpoint: ${clientsUrl}`)
-    let response = await fetch(clientsUrl, {
+    const potentialClientsUrl = `https://app.stelorder.com/app/potentialClients/${clientId}`
+    console.log(`[stel-potential-client] Trying /potentialClients endpoint: ${potentialClientsUrl}`)
+    
+    const response = await fetch(potentialClientsUrl, {
       headers: { APIKEY: stelApiKey },
     })
-    console.log(`[stel-client] /clients response status: ${response.status}`)
-
-    // If 404, try potentialClients endpoint
-    if (response.status === 404) {
-      const potentialClientsUrl = `https://app.stelorder.com/app/potentialClients/${clientId}`
-      console.log(`[stel-client] Step 2: Client not found in /clients, trying /potentialClients: ${potentialClientsUrl}`)
-      response = await fetch(potentialClientsUrl, {
-        headers: { APIKEY: stelApiKey },
-      })
-      console.log(`[stel-client] /potentialClients response status: ${response.status}`)
-    }
+    
+    console.log(`[stel-potential-client] /potentialClients response status: ${response.status}`)
 
     if (response.status === 404) {
-      console.log(`[stel-client] ERROR: Client ${clientId} not found in both /clients and /potentialClients (404)`)
-      return new Response(JSON.stringify({ error: "Client not found", clientId }), {
+      console.log(`[stel-potential-client] ERROR: Potential client ${clientId} not found (404)`)
+      return new Response(JSON.stringify({ error: "Potential client not found", clientId }), {
         status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" }
       })
     }
 
     if (!response.ok) {
       const errorText = await response.text()
-      console.error(`[stel-client] STEL API error ${response.status}: ${errorText}`)
+      console.error(`[stel-potential-client] STEL API error ${response.status}: ${errorText}`)
       throw new Error(`API error: ${response.status}`)
     }
 
     const data = await response.json()
-    console.log(`[stel-client] SUCCESS: Client ${clientId} fetched successfully. Name: ${data.name || data['legal-name']}`)
+    console.log(`[stel-potential-client] SUCCESS: Potential client ${clientId} fetched successfully. Name: ${data.name || data['legal-name']}`)
     
     return new Response(JSON.stringify(data), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     })
   } catch (error) {
-    console.error("[stel-client] EXCEPTION:", error)
+    console.error("[stel-potential-client] EXCEPTION:", error)
     return new Response(
       JSON.stringify({ error: error instanceof Error ? error.message : "Error" }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
