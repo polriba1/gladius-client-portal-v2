@@ -472,8 +472,13 @@ const Calendario = () => {
 
       console.log('⚠️ Not in DEV mode or Vite proxy failed, using Supabase Edge Function');
       
-      // Fetch the latest 500 events (no date filter)
-      // The API returns events ordered by most recent first
+      // Fetch events from last month via Edge Function
+      const oneMonthAgo = new Date();
+      oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+      const utcLastModificationDate = oneMonthAgo.toISOString().replace(/\.\d{3}Z$/, '+0000');
+      
+      console.log(`📅 Filtering events modified after: ${utcLastModificationDate}`);
+      
       const limit = 500;
       
       try {
@@ -482,6 +487,7 @@ const Calendario = () => {
         const { data, error } = await supabase.functions.invoke('stel-events', {
           body: {
             limit: limit.toString(),
+            'utc-last-modification-date': utcLastModificationDate,
           },
         });
 
