@@ -26,25 +26,54 @@ serve(async (req: Request) => {
         const body = await req.json()
         limit = body.limit || "500"
         daysBack = body.daysBack || 30
-      } catch (_e) {}
+        console.log(`Request body: limit=${limit}, daysBack=${daysBack}`)
+      } catch (_e) {
+        console.log("No JSON body received, using defaults")
+      }
     }
 
-    const response = await fetch(`https://app.stelorder.com/app/incidents?limit=${limit}`, {
+    // Calculate the date for filtering (1 month ago)
+    const oneMonthAgo = new Date()
+    oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1)
+    const utcLastModificationDate = oneMonthAgo.toISOString().replace(/\.\d{3}Z$/, '+0000')
+    
+    console.log(`Fetching incidents with limit=${limit}, utc-last-modification-date=${utcLastModificationDate}`)
+
+    const apiUrl = `https://app.stelorder.com/app/incidents?limit=${limit}&utc-last-modification-date=${encodeURIComponent(utcLastModificationDate)}`
+    
+    const response = await fetch(apiUrl, {
       headers: { APIKEY: stelApiKey },
     })
 
-    if (!response.ok) throw new Error(`API error: ${response.status}`)
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error(`STEL API error ${response.status}: ${errorText}`)
+      throw new Error(`API error: ${response.status}`)
+    }
 
     const allIncidents = await response.json()
-    const cutoffDate = new Date()
-    cutoffDate.setDate(cutoffDate.getDate() - daysBack)
+    console.log(`Total incidents fetched: ${allIncidents.length}`)
     
-    const filtered = allIncidents.filter((inc: any) => {
-      const date = inc["creation-date"]
-      return date && new Date(date) >= cutoffDate
+    // Filter: not deleted AND incident date between 1 month ago and 1 month ahead
+    const oneMonthAgoDate = new Date()
+    oneMonthAgoDate.setMonth(oneMonthAgoDate.getMonth() - 1)
+    const oneMonthAheadDate = new Date()
+    oneMonthAheadDate.setMonth(oneMonthAheadDate.getMonth() + 1)
+    
+    interface Incident {
+      deleted?: boolean
+      date?: string
+      [key: string]: unknown
+    }
+    
+    const filtered = allIncidents.filter((inc: Incident) => {
+      if (inc.deleted) return false
+      if (!inc.date) return false
+      const incidentDate = new Date(inc.date)
+      return incidentDate >= oneMonthAgoDate && incidentDate <= oneMonthAheadDate
     })
 
-    console.log(`Filtered ${filtered.length}/${allIncidents.length} incidents`)
+    console.log(`Filtered ${filtered.length}/${allIncidents.length} incidents (not deleted, -1 month to +1 month)`)
 
     return new Response(JSON.stringify(filtered), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
