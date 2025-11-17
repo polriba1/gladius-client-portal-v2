@@ -22,11 +22,12 @@ moment.locale('es');
 
 const localizer = momentLocalizer(moment);
 
-// 🚨 VERSION CHECK - This file should ONLY work with INCIDENTS, NOT EVENTS
-console.log('🚨🚨🚨 CALENDARIO VERSION: 2.0 - INCIDENTS ONLY (NOT EVENTS) 🚨🚨🚨');
+// 🚨 VERSION CHECK - This file works with EVENTS (AGENDA), NOT INCIDENTS
+console.log('🚨🚨🚨 CALENDARIO VERSION: 3.0 - EVENTS (AGENDA) 🚨🚨🚨');
 console.log('📅 File loaded at:', new Date().toISOString());
 
-interface StelIncidentType {
+// EventType representa un tècnic de camp
+interface StelEventType {
   path: string;
   deleted: boolean;
   color: string;
@@ -35,34 +36,33 @@ interface StelIncidentType {
   'utc-last-modification-date': string;
 }
 
-interface StelIncident {
+// Event representa una cita/event al calendari
+interface StelEvent {
   id: number;
-  reference: string;
-  "full-reference": string;
+  subject: string; // Títol de l'event
   description: string | null;
-  date: string; // Date of the incident (when it's scheduled)
-  "utc-last-modification-date": string;
-  "account-path": string;
-  "account-id": number;
-  "assignee-path": string | null; // The technician assigned
-  "assignee-id": number | null;
-  "creator-path": string;
+  location: string | null;
+  "start-date": string; // Data d'inici
+  "end-date": string; // Data de finalització
+  "all-day": boolean;
+  "event-state": "PENDING" | "COMPLETED" | "REFUSED";
+  "event-type-id": number | null; // ID del tipus d'event (tècnic)
+  "event-type-path": string | null;
+  "calendar-id": number;
+  "calendar-path": string;
   "creator-id": number;
-  "address-path": string | null;
-  "address-id": number | null;
-  "incident-type-path": string | null;
-  "incident-type-id": number | null;
-  "incident-state-path": string;
-  "incident-state-id": number;
-  priority: "LOW" | "NORMAL" | "HIGH" | "URGENT";
-  "creation-date": string;
-  "assigned-date": string | null;
-  "closing-date": string | null;
+  "creator-path": string;
+  "account-id": number | null;
+  "account-path": string | null;
+  "incident-id": number | null;
+  "incident-path": string | null;
+  "asset-id": number | null;
+  "asset-path": string | null;
+  "document-id": number | null;
+  "document-path": string | null;
+  "utc-last-modification-date": string;
+  path: string;
   deleted: boolean;
-  phone: string | null;
-  resolution: string | null;
-  assets: unknown[];
-  length: number;
 }
 
 interface CalendarEvent {
@@ -70,8 +70,9 @@ interface CalendarEvent {
   title: string;
   start: Date;
   end: Date;
-  resource?: StelIncident; // Changed from StelEvent to StelIncident
-  technician?: string; // Added to track technician
+  resource?: StelEvent; // Resource ara és StelEvent
+  technician?: string; // Nom del tècnic
+  technicianId?: number; // ID del event-type (tècnic)
 }
 
 interface TechnicianSchedule {
@@ -192,7 +193,7 @@ const Calendario = () => {
   const [copiedTech, setCopiedTech] = useState<string | null>(null);
   const [whatsappTextCache, setWhatsappTextCache] = useState<Map<string, string>>(new Map());
   const [loadingWhatsapp, setLoadingWhatsapp] = useState<string | null>(null);
-  const [incidentTypes, setIncidentTypes] = useState<Map<number, StelIncidentType>>(new Map());
+  const [eventTypes, setEventTypes] = useState<Map<number, StelEventType>>(new Map()); // EventTypes = Tècnics
 
   // Helper function to get color for technician
   // Persistent color mapping stored in localStorage so each technician keeps the same color
@@ -675,28 +676,7 @@ const Calendario = () => {
   const generateWhatsAppText = async (technicianName: string, events: CalendarEvent[], date: Date) => {
     console.log(`📱 Generating WhatsApp text for ${technicianName} with ${events.length} events`);
 
-    // 🚫 CRITICAL: Filter out I-PRT incidents from WhatsApp text
-    const filteredEvents = events.filter(event => {
-      const reference = (event.resource?.reference ?? '').toString();
-      const fullReference = (event.resource?.['full-reference'] ?? '').toString();
-      const title = (event.title ?? '').toString();
-
-      // Check all relevant identifiers for I-PRT regardless of case
-      const fieldsToCheck = [reference, fullReference, title].map(value => value.toUpperCase());
-      const isIPRT = fieldsToCheck.some(value => value.includes('I-PRT'));
-
-      console.log(`WhatsApp Filter - Ref: "${reference}" | Full: "${fullReference}" | Title: "${title}" | I-PRT? ${isIPRT}`);
-
-      if (isIPRT) {
-        console.log(`Blocked I-PRT incident from WhatsApp: ${fullReference || reference || title}`);
-        return false;
-      }
-
-      console.log(`Allowed incident: ${fullReference || reference || title}`);
-      return true;
-    });
-
-    console.log(`✅ After filtering: ${filteredEvents.length} events (removed ${events.length - filteredEvents.length} I-PRT incidents)`);
+    const filteredEvents = events; // No need to filter for I-PRT with events
 
     // If no events left after filtering, return empty message
     if (filteredEvents.length === 0) {
@@ -809,12 +789,17 @@ const Calendario = () => {
       const addressId = addressIds[index];
       const employeeId = employeeIds[index];
       
-      // 1. Codi / Títol de l'avís o incidència
-      // Format: "Referencia: [full-reference] - [description]"
-      const incidentRef = event.resource?.['full-reference'] || event.resource?.reference || 'N/A';
-      text += `*Incidencia: ${incidentRef}*\n\n`;
+      // 1. Títol/Subject de l'event (amb incident-id si està vinculat)
+      const eventSubject = event.resource?.subject || event.title || 'Sin título';
+      const incidentId = event.resource?.['incident-id'];
       
-      // 2. Descripció del problema o incidència
+      if (incidentId) {
+        text += `*Evento: ${eventSubject}* (Vinculado a incidencia #${incidentId})\n\n`;
+      } else {
+        text += `*Evento: ${eventSubject}*\n\n`;
+      }
+      
+      // 2. Descripció de l'event
       if (event.resource?.description) {
         text += `${event.resource.description}\n\n`;
       }
@@ -825,12 +810,9 @@ const Calendario = () => {
       const endTime = moment(event.end).format('HH:mm');
       text += `*Cuándo:* ${startDateTime} - ${endTime}\n\n`;
       
-      // 4. Tipo de incidencia
-      const incidentTypeId = event.resource?.['incident-type-id'];
-      const incidentTypeName = incidentTypeId ? incidentTypes.get(incidentTypeId)?.name : null;
-      const normalizedIncidentType = incidentTypeName?.trim();
-      if (normalizedIncidentType && !['N/A', 'NA'].includes(normalizedIncidentType.toUpperCase())) {
-        text += `*Tipo:* ${normalizedIncidentType}\n\n`;
+      // 4. Ubicación (si hi ha location)
+      if (event.resource?.location) {
+        text += `*Ubicación especificada:* ${event.resource.location}\n\n`;
       }
       
       // 5. Client (SEMPRE amb nom real de l'API)
@@ -970,158 +952,133 @@ const Calendario = () => {
     };
   }, [navigate]);
 
-  const fetchIncidents = async () => {
-    console.log('🚀 fetchIncidents called - LOADING INCIDENTS (NOT EVENTS)!');
+  const fetchEvents = async () => {
+    console.log('🚀 fetchEvents called - LOADING EVENTS (AGENDA)!');
     setLoading(true);
     
-    // 🔄 Clear WhatsApp text cache when fetching new incidents
+    // 🔄 Clear WhatsApp text cache when fetching new events
     console.log('🗑️ Clearing WhatsApp text cache...');
     setWhatsappTextCache(new Map());
     
     try {
-      const today = new Date();
-      const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-      const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
-
-      const applyIncidents = async (stelIncidents: StelIncident[]) => {
-        console.log('📅 Processing Incidents:', {
-          totalIncidents: stelIncidents.length
+      // STEP 1: Fetch EventTypes (Tècnics de camp)
+      console.log('📋 Step 1: Fetching EventTypes (Technicians)...');
+      
+      const fetchEventTypes = async (): Promise<Map<number, StelEventType>> => {
+        const eventTypesMap = new Map<number, StelEventType>();
+        
+        if (import.meta.env.DEV) {
+          // DEV: use Vite proxy
+          const eventTypesUrl = '/api/stel/app/eventTypes?limit=500';
+          const response = await fetch(eventTypesUrl, {
+            headers: {
+              APIKEY: import.meta.env.VITE_STEL_API_KEY,
+            },
+          });
+          
+          if (!response.ok) {
+            throw new Error(`Failed to fetch EventTypes: ${response.status}`);
+          }
+          
+          const eventTypesData = await response.json() as StelEventType[];
+          console.log(`✅ Fetched ${eventTypesData.length} EventTypes`);
+          
+          eventTypesData.forEach(et => {
+            if (!et.deleted) {
+              eventTypesMap.set(et.id, et);
+            }
+          });
+        } else {
+          // PROD: Supabase Edge Function (crearem una nova si cal)
+          // TODO: Crear edge function 'stel-event-types'
+          const { data, error } = await supabase.functions.invoke('stel-event-types', {
+            body: { limit: 500 },
+          });
+          
+          if (error) throw error;
+          
+          const eventTypesData = (data ?? []) as StelEventType[];
+          eventTypesData.forEach(et => {
+            if (!et.deleted) {
+              eventTypesMap.set(et.id, et);
+            }
+          });
+        }
+        
+        console.log(`✅ EventTypes Map created with ${eventTypesMap.size} technicians`);
+        return eventTypesMap;
+      };
+      
+      const eventTypesMap = await fetchEventTypes();
+      setEventTypes(eventTypesMap);
+      
+      // STEP 2: Process Events
+      const applyEvents = async (stelEvents: StelEvent[]) => {
+        console.log('📅 Processing Events:', {
+          totalEvents: stelEvents.length
         });
 
-        // Filter out deleted incidents and I-PRT incidents
-        const validIncidents = stelIncidents.filter((incident) => {
-          // Exclude deleted incidents
-          if (incident.deleted) return false;
-          
-          // Exclude I-PRT incidents (reference starts with "I-PRT")
-          if (incident.reference && incident.reference.startsWith('I-PRT')) {
-            console.log(`🚫 Excluding I-PRT incident: ${incident.reference}`);
-            return false;
-          }
+        // Filter out deleted events
+        const validEvents = stelEvents.filter((event) => {
+          // Exclude deleted events
+          if (event.deleted) return false;
           
           return true;
         });
 
-        console.log('📅 Filtered Incidents:', {
-          total: stelIncidents.length,
-          valid: validIncidents.length,
+        console.log('📅 Filtered Events:', {
+          total: stelEvents.length,
+          valid: validEvents.length,
           dateRange: {
-            earliest: validIncidents.length > 0 ? validIncidents.reduce((min, i) => i.date < min ? i.date : min, validIncidents[0].date) : null,
-            latest: validIncidents.length > 0 ? validIncidents.reduce((max, i) => i.date > max ? i.date : max, validIncidents[0].date) : null
+            earliest: validEvents.length > 0 ? validEvents.reduce((min, i) => i['start-date'] < min ? i['start-date'] : min, validEvents[0]['start-date']) : null,
+            latest: validEvents.length > 0 ? validEvents.reduce((max, i) => i['start-date'] > max ? i['start-date'] : max, validEvents[0]['start-date']) : null
           },
-          sample: validIncidents.slice(0, 5).map(i => ({
-            id: i.id,
-            reference: i.reference,
-            description: i.description,
-            date: i.date,
-            assigneeId: i['assignee-id']
+          sample: validEvents.slice(0, 5).map(e => ({
+            id: e.id,
+            subject: e.subject,
+            description: e.description,
+            startDate: e['start-date'],
+            endDate: e['end-date'],
+            eventTypeId: e['event-type-id']
           }))
         });
 
-        // Fetch all unique assignees (employees) to get their TEC codes
-        const uniqueAssigneeIds = [...new Set(
-          validIncidents
-            .map(i => i['assignee-id'])
-            .filter(id => id)
-        )];
-
-        console.log(`🔍 Fetching ${uniqueAssigneeIds.length} unique assignees...`);
-
-        // Fetch employee data for all assignees
-        const assigneeMap = new Map<number, string>(); // employeeId -> TEC code
-        
-        for (const employeeId of uniqueAssigneeIds) {
-          try {
-            let employee = null;
+        // Map events to calendar events
+        const calendarEvents: CalendarEvent[] = validEvents.map((event) => {
+          // Events have 'start-date' and 'end-date' fields: "2024-09-30T09:00:00+0000"
+          // ⚠️ CRITICAL: The STEL API sends dates with +0000 but they are ALREADY in local time (CET/CEST)
+          // We need to extract the time values and use them AS-IS without timezone conversion
+          
+          // Helper function to parse date string without timezone conversion
+          const parseLocalDate = (dateStr: string): Date => {
+            const [datePart, timePartWithTZ] = dateStr.split('T');
+            const timePart = timePartWithTZ.split('+')[0].split('-')[0]; // Remove timezone
             
-            if (import.meta.env.DEV) {
-              // DEV: use Vite proxy
-              const employeeUrl = `/api/stel/app/employees/${employeeId}`;
-              const response = await fetch(employeeUrl, {
-                headers: {
-                  APIKEY: import.meta.env.VITE_STEL_API_KEY,
-                },
-              });
-              
-              if (response.ok) {
-                const employeeData = await response.json();
-                employee = Array.isArray(employeeData) ? employeeData[0] : employeeData;
-              } else if (response.status === 404) {
-                console.warn(`⚠️ Employee ${employeeId} not found (404)`);
-                continue;
-              }
-            } else {
-              // PROD: use Supabase Edge Function
-              const { data, error } = await supabase.functions.invoke('stel-employee', {
-                body: { employeeId: employeeId.toString() },
-              });
-              
-              if (error) {
-                console.warn(`⚠️ Error fetching employee ${employeeId}:`, error);
-                continue;
-              }
-              
-              employee = Array.isArray(data) ? data[0] : data;
-            }
+            const [year, month, day] = datePart.split('-').map(Number);
+            const timeComponents = timePart.split(':');
+            const hours = parseInt(timeComponents[0]);
+            const minutes = parseInt(timeComponents[1]);
+            const seconds = timeComponents[2] ? parseInt(timeComponents[2]) : 0;
             
-            if (employee) {
-              console.log(`👤 Employee ${employeeId}:`, employee);
-              
-              // Employee.name contains "TEC095 " or similar
-              const techMatch = employee?.name?.match(/TEC\s*(\d+)/i);
-              if (techMatch) {
-                const normalizedTech = `TEC${String(techMatch[1]).padStart(3, '0')}`;
-                assigneeMap.set(employeeId, normalizedTech);
-                console.log(`✅ Mapped employee ${employeeId} to ${normalizedTech}`);
-              } else {
-                console.warn(`⚠️ Employee ${employeeId} has no TEC in name: "${employee?.name}"`);
-              }
-            }
-          } catch (error) {
-            console.warn(`⚠️ Exception fetching employee ${employeeId}:`, error);
-          }
-        }
+            // Create a Date object with the LOCAL time values (no timezone conversion)
+            return new Date(year, month - 1, day, hours, minutes, seconds);
+          };
+          
+          const startDate = parseLocalDate(event['start-date']);
+          const endDate = parseLocalDate(event['end-date']);
+          
+          // Get technician name from EventType
+          const eventType = event['event-type-id'] ? eventTypesMap.get(event['event-type-id']) : null;
+          const technicianName = eventType?.name || 'Sin Asignar';
 
-        console.log(`✅ Fetched ${assigneeMap.size} assignees with TEC codes`);
-
-        // Map incidents to calendar events with real TEC codes
-        const calendarEvents: CalendarEvent[] = validIncidents.map((incident, index) => {
-          // Incidents have a single 'date' field: "2024-09-30T09:00:00+0000"
-          // ⚠️ CRITICAL FIX: The STEL API sends dates with +0000 but they are ALREADY in local time (CET/CEST)
-          // We need to extract the time values (09:00:00) and use them AS-IS without timezone conversion
-          // Example: "2024-09-30T09:00:00+0000" should display as 09:00, NOT 11:00
-          
-          // Parse the date string to extract the exact time values
-          const dateStr = incident.date; // e.g., "2024-09-30T09:00:00+0000"
-          const [datePart, timePartWithTZ] = dateStr.split('T');
-          const timePart = timePartWithTZ.split('+')[0].split('-')[0]; // Remove timezone
-          
-          const [year, month, day] = datePart.split('-').map(Number);
-          const timeComponents = timePart.split(':');
-          const hours = parseInt(timeComponents[0]);
-          const minutes = parseInt(timeComponents[1]);
-          const seconds = timeComponents[2] ? parseInt(timeComponents[2]) : 0;
-          
-          // Create a Date object with the LOCAL time values (no timezone conversion)
-          const startDate = new Date(year, month - 1, day, hours, minutes, seconds);
-          
-          // incident.length is in MINUTES (e.g., length: 60 = 1 hour)
-          // Default to 120 minutes (2 hours) if not specified
-          const durationMinutes = incident.length || 120;
-          const endDate = new Date(startDate.getTime() + durationMinutes * 60000);
-          
-          // Get TEC code from assignee map
-          const technicianId = incident['assignee-id'] 
-            ? (assigneeMap.get(incident['assignee-id']) || 'Sin Asignar')
-            : 'Sin Asignar';
-
-          const calendarEvent = {
-            id: incident.id,
-            title: incident.description || `INC ${incident.reference}`,
+          const calendarEvent: CalendarEvent = {
+            id: event.id,
+            title: event.subject || event.description || `Event ${event.id}`,
             start: startDate,
             end: endDate,
-            resource: incident,
-            technician: technicianId,
+            resource: event,
+            technician: technicianName,
+            technicianId: event['event-type-id'] || undefined,
           };
           
           return calendarEvent;
@@ -1211,13 +1168,13 @@ const Calendario = () => {
           });
           
           toast({
-            title: 'Incidencias Cargadas',
-            description: `${calendarEvents.length} incidencias de ${schedules.length} técnicos (${earliestDate} a ${latestDate})`,
+            title: 'Eventos Cargados',
+            description: `${calendarEvents.length} eventos de ${schedules.length} técnicos (${earliestDate} a ${latestDate})`,
           });
         } else {
           toast({
-            title: 'Sin Incidencias',
-            description: 'No se encontraron incidencias en la respuesta de la API',
+            title: 'Sin Eventos',
+            description: 'No se encontraron eventos en la respuesta de la API',
             variant: 'destructive',
           });
         }
@@ -1226,17 +1183,21 @@ const Calendario = () => {
       if (import.meta.env.DEV) {
         console.log('✅ Running in DEV mode, using Vite proxy');
         try {
-          // Fetch incidents from 1 month before AND 1 month ahead (2 months total)
+          // Fetch events from 1 month before AND 1 month ahead (2 months total)
           const oneMonthAgo = new Date();
           oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
-          const utcLastModificationDate = oneMonthAgo.toISOString().replace(/\.\d{3}Z$/, '+0000');
+          const startDateFilter = oneMonthAgo.toISOString().replace(/\.\d{3}Z$/, '+0000');
           
-          console.log(`📅 Filtering incidents modified after: ${utcLastModificationDate}`);
+          const oneMonthAhead = new Date();
+          oneMonthAhead.setMonth(oneMonthAhead.getMonth() + 1);
+          const endDateFilter = oneMonthAhead.toISOString().replace(/\.\d{3}Z$/, '+0000');
+          
+          console.log(`📅 Filtering events from ${startDateFilter} to ${endDateFilter}`);
           
           const limit = 500; // Maximum supported
-          const proxyUrl = `/api/stel/app/incidents?limit=${limit}&utc-last-modification-date=${encodeURIComponent(utcLastModificationDate)}`;
+          const proxyUrl = `/api/stel/app/events?limit=${limit}&start-date=${encodeURIComponent(startDateFilter)}&end-date=${encodeURIComponent(endDateFilter)}`;
           
-          console.log(`📡 Fetching incidents with limit=${limit}...`);
+          console.log(`📡 Fetching events with limit=${limit}...`);
           
           const response = await fetch(proxyUrl, {
             headers: {
@@ -1248,46 +1209,33 @@ const Calendario = () => {
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
           }
 
-          const allIncidents = (await response.json()) as StelIncident[];
-          console.log(`✅ Total incidents fetched: ${allIncidents.length}`);
+          const allEvents = (await response.json()) as StelEvent[];
+          console.log(`✅ Total events fetched: ${allEvents.length}`);
           
-          // Filter: not deleted AND incident date between 1 month ago and 1 month ahead
-          const oneMonthAgoDate = new Date();
-          oneMonthAgoDate.setMonth(oneMonthAgoDate.getMonth() - 1);
-          const oneMonthAheadDate = new Date();
-          oneMonthAheadDate.setMonth(oneMonthAheadDate.getMonth() + 1);
-          
-          const validIncidents = allIncidents.filter((incident) => {
-            // Exclude deleted incidents
-            if (incident.deleted) return false;
+          // Filter: not deleted
+          const validEvents = allEvents.filter((event) => {
+            // Exclude deleted events
+            if (event.deleted) return false;
             
-            // Exclude incidents without date
-            if (!incident.date) return false;
+            // Exclude events without start-date
+            if (!event['start-date']) return false;
             
-            // Exclude I-PRT incidents (reference starts with "I-PRT")
-            if (incident.reference && incident.reference.startsWith('I-PRT')) {
-              console.log(`🚫 Excluding I-PRT incident: ${incident.reference}`);
-              return false;
-            }
-            
-            // Filter by date range
-            const incidentDate = new Date(incident.date);
-            return incidentDate >= oneMonthAgoDate && incidentDate <= oneMonthAheadDate;
+            return true;
           });
           
-          console.log(`✅ Valid incidents (not deleted, -1 month to +1 month): ${validIncidents.length}`);
-          console.log(`📅 Date range filter: ${moment(oneMonthAgoDate).format('YYYY-MM-DD')} to ${moment(oneMonthAheadDate).format('YYYY-MM-DD')}`);
+          console.log(`✅ Valid events (not deleted): ${validEvents.length}`);
+          console.log(`📅 Date range filter: ${moment(oneMonthAgo).format('YYYY-MM-DD')} to ${moment(oneMonthAhead).format('YYYY-MM-DD')}`);
           
           // Get date range
-          if (validIncidents.length > 0) {
-            const dates = validIncidents
-              .map(i => i.date)
+          if (validEvents.length > 0) {
+            const dates = validEvents
+              .map(e => e['start-date'])
               .filter(d => d)
               .sort();
-            console.log(`📅 Actual incidents date range: ${dates[0]} to ${dates[dates.length - 1]}`);
+            console.log(`📅 Actual events date range: ${dates[0]} to ${dates[dates.length - 1]}`);
           }
 
-          await applyIncidents(validIncidents);
+          await applyEvents(validEvents);
           return;
         } catch (viteError) {
           console.warn('❌ Vite proxy request failed, attempting Supabase Edge Function', viteError);
@@ -1296,20 +1244,28 @@ const Calendario = () => {
 
       console.log('⚠️ Not in DEV mode or Vite proxy failed, using Supabase Edge Function');
       
-      // Fetch incidents from 1 month before and 1 month ahead (2 months total)
-      const daysBack = 30;
-      const daysAhead = 30;
+      // Fetch events from 1 month before and 1 month ahead (2 months total)
+      const oneMonthAgo = new Date();
+      oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+      const startDate = oneMonthAgo.toISOString().replace(/\.\d{3}Z$/, '+0000');
+      
+      const oneMonthAhead = new Date();
+      oneMonthAhead.setMonth(oneMonthAhead.getMonth() + 1);
+      const endDate = oneMonthAhead.toISOString().replace(/\.\d{3}Z$/, '+0000');
+      
       const limit = 500;
       
-      console.log(`📅 Fetching incidents from last ${daysBack} days and next ${daysAhead} days`);
+      console.log(`📅 Fetching events from ${startDate} to ${endDate}`);
       
       try {
-        console.log(`🔧 Supabase Edge Function Request: limit=${limit}, daysBack=${daysBack}`);
+        console.log(`🔧 Supabase Edge Function Request: limit=${limit}`);
 
-        const { data, error } = await supabase.functions.invoke('stel-incidents', {
+        // TODO: Crear edge function 'stel-events'
+        const { data, error } = await supabase.functions.invoke('stel-events', {
           body: {
             limit: limit.toString(),
-            daysBack: daysBack,
+            startDate,
+            endDate,
           },
         });
 
@@ -1317,52 +1273,40 @@ const Calendario = () => {
           throw error;
         }
 
-        const allIncidents = (data ?? []) as StelIncident[];
-        console.log(`✅ Total incidents fetched: ${allIncidents.length}`);
+        const allEvents = (data ?? []) as StelEvent[];
+        console.log(`✅ Total events fetched: ${allEvents.length}`);
         
-        // Filter: not deleted AND not I-PRT AND incident date between 1 month ago and 1 month ahead
-        const oneMonthAgoDate = new Date();
-        oneMonthAgoDate.setMonth(oneMonthAgoDate.getMonth() - 1);
-        const oneMonthAheadDate = new Date();
-        oneMonthAheadDate.setMonth(oneMonthAheadDate.getMonth() + 1);
-        
-        const validIncidents = allIncidents.filter((incident) => {
-          if (incident.deleted) return false;
-          if (!incident.date) return false;
+        // Filter: not deleted
+        const validEvents = allEvents.filter((event) => {
+          if (event.deleted) return false;
+          if (!event['start-date']) return false;
           
-          // Exclude I-PRT incidents (reference starts with "I-PRT")
-          if (incident.reference && incident.reference.startsWith('I-PRT')) {
-            console.log(`🚫 Excluding I-PRT incident: ${incident.reference}`);
-            return false;
-          }
-          
-          const incidentDate = new Date(incident.date);
-          return incidentDate >= oneMonthAgoDate && incidentDate <= oneMonthAheadDate;
+          return true;
         });
         
-        console.log(`✅ Valid incidents (not deleted, -1 month to +1 month): ${validIncidents.length}`);
-        console.log(`📅 Date range filter: ${moment(oneMonthAgoDate).format('YYYY-MM-DD')} to ${moment(oneMonthAheadDate).format('YYYY-MM-DD')}`);
+        console.log(`✅ Valid events (not deleted): ${validEvents.length}`);
+        console.log(`📅 Date range filter: ${moment(oneMonthAgo).format('YYYY-MM-DD')} to ${moment(oneMonthAhead).format('YYYY-MM-DD')}`);
         
         // Get date range
-        if (validIncidents.length > 0) {
-          const dates = validIncidents
-            .map(i => i.date)
+        if (validEvents.length > 0) {
+          const dates = validEvents
+            .map(e => e['start-date'])
             .filter(d => d)
             .sort();
-          console.log(`📅 Actual incidents date range: ${dates[0]} to ${dates[dates.length - 1]}`);
+          console.log(`📅 Actual events date range: ${dates[0]} to ${dates[dates.length - 1]}`);
         }
 
-        await applyIncidents(validIncidents);
+        await applyEvents(validEvents);
       } catch (edgeFunctionError) {
         console.error('❌ Edge Function request failed:', edgeFunctionError);
         toast({
           title: 'Error',
-          description: 'No se pudieron cargar las incidencias',
+          description: 'No se pudieron cargar los eventos',
           variant: 'destructive',
         });
       }
     } catch (error) {
-      console.error('Error fetching incidents:', error);
+      console.error('Error fetching events:', error);
       const message = error instanceof Error ? error.message : String(error);
       toast({
         title: 'Error',
@@ -1371,7 +1315,7 @@ const Calendario = () => {
       });
     } finally {
       setLoading(false);
-      console.log('🏁 fetchIncidents completed');
+      console.log('🏁 fetchEvents completed');
     }
   };
 
@@ -1389,22 +1333,22 @@ const Calendario = () => {
           </div>
           <div>
             <h1 className="text-3xl font-bold tracking-tight bg-gradient-primary bg-clip-text text-transparent">
-              Calendario de Incidencias
+              Calendario de Eventos (Agenda)
             </h1>
             <p className="text-muted-foreground">
-              Gestión de incidencias de STEL Order
+              Gestión de eventos y citas de STEL Order
             </p>
           </div>
         </div>
 
         <Button
-          onClick={fetchIncidents}
+          onClick={fetchEvents}
           disabled={loading}
           className="bg-gradient-to-r from-primary to-primary-hover hover:shadow-lg transition-all duration-300 gap-2"
           size="lg"
         >
           <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-          {loading ? 'Cargando...' : '🔧 Cargar Incidencias (v2.0)'}
+          {loading ? 'Cargando...' : '📅 Cargar Eventos (v3.0)'}
         </Button>
       </div>
 
@@ -1493,10 +1437,10 @@ const Calendario = () => {
             <div className="flex items-center gap-2 text-sm">
               <CalendarIcon className="h-4 w-4 text-blue-600" />
               <span className="font-medium text-blue-900">
-                Incidencias disponibles: {moment(events.map(e => e.start).sort()[0]).format('DD/MM/YYYY')} 
+                Eventos disponibles: {moment(events.map(e => e.start).sort()[0]).format('DD/MM/YYYY')} 
                 {' → '}
                 {moment(events.map(e => e.start).sort()[events.length - 1]).format('DD/MM/YYYY')}
-                {' '}({events.length} incidencias cargadas)
+                {' '}({events.length} eventos cargados)
               </span>
             </div>
           </CardContent>
@@ -1539,9 +1483,9 @@ const Calendario = () => {
                           <CalendarIcon className="h-8 w-8 text-orange-600" />
                         </div>
                         <div>
-                          <h3 className="text-lg font-semibold text-orange-900">Sin incidencias para esta fecha</h3>
+                          <h3 className="text-lg font-semibold text-orange-900">Sin eventos para esta fecha</h3>
                           <p className="text-orange-700 mt-1">
-                            No hay incidencias programadas para {moment(currentDate).format('DD/MM/YYYY')}
+                            No hay eventos programados para {moment(currentDate).format('DD/MM/YYYY')}
                           </p>
                           <p className="text-sm text-orange-600 mt-2">
                             Usa los botones de navegación para explorar otras fechas
@@ -1754,9 +1698,9 @@ const Calendario = () => {
                 <CalendarIcon className="h-8 w-8 text-muted-foreground" />
               </div>
               <div>
-                <h3 className="text-lg font-semibold">No hay incidencias</h3>
+                <h3 className="text-lg font-semibold">No hay eventos</h3>
                 <p className="text-muted-foreground">
-                  Haz clic en "Cargar Incidencias" para obtener las incidencias de STEL Order
+                  Haz clic en "Cargar Eventos" para obtener los eventos de STEL Order
                 </p>
               </div>
             </div>
