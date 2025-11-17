@@ -673,7 +673,7 @@ const Calendario = () => {
   };
 
   // Fetch incident by ID from STEL API (to get address-id)
-  const fetchIncidentById = async (incidentId: number): Promise<any | null> => {
+  const fetchIncidentById = async (incidentId: number): Promise<Record<string, unknown> | null> => {
     try {
       console.log(`📋 Fetching incident info for ID: ${incidentId}`);
       
@@ -1588,7 +1588,7 @@ const Calendario = () => {
                             views={['day']}
                             step={30}
                             timeslots={2}
-                            min={new Date(2025, 0, 1, 6, 0, 0)}
+                            min={new Date(2025, 0, 1, 8, 0, 0)}
                             max={new Date(2025, 0, 1, 22, 0, 0)}
                             showMultiDayTimes
                             toolbar={false}
