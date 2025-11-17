@@ -791,43 +791,17 @@ const Calendario = () => {
       }
     });
     
-    const employeeIds = filteredEvents.map((event) => {
-      let employeeId = event.resource?.['creator-path']?.split('/').pop();
-      if (!employeeId || employeeId === '' || employeeId === 'undefined') {
-        employeeId = event.resource?.['creator-id']?.toString();
-      }
-      return employeeId;
-    });
-    
-    const employeePromises = filteredEvents.map(async (event, index) => {
-      const employeeId = employeeIds[index];
-      
-      if (!employeeId) {
-        console.warn(`⚠️ Event ${event.id} has no creator-path or creator-id`);
-        return null;
-      }
-      try {
-        return await fetchEmployeeInfo(employeeId);
-      } catch (error) {
-        console.error(`❌ Failed to fetch employee ${employeeId}:`, error);
-        return null;
-      }
-    });
-    
-    const [clientsInfo, addressesInfo, employeesInfo] = await Promise.all([
+    const [clientsInfo, addressesInfo] = await Promise.all([
       Promise.all(clientPromises),
-      Promise.all(addressPromises),
-      Promise.all(employeePromises)
+      Promise.all(addressPromises)
     ]);
     
-    console.log(`✅ Fetched ${clientsInfo.filter(c => c).length} clients, ${addressesInfo.filter(a => a).length} addresses, and ${employeesInfo.filter(e => e).length} employees`);
+    console.log(`✅ Fetched ${clientsInfo.filter(c => c).length} clients and ${addressesInfo.filter(a => a).length} addresses`);
 
     filteredEvents.forEach((event, index) => {
       const clientInfo = clientsInfo[index];
       const addressInfo = addressesInfo[index];
-      const employeeInfo = employeesInfo[index];
       const clientId = clientIds[index];
-      const employeeId = employeeIds[index];
       
       // 1. Títol/Subject de l'event (amb incident-id si està vinculat)
       const eventSubject = event.resource?.subject || event.title || 'Sin título';
@@ -877,29 +851,13 @@ const Calendario = () => {
         ].filter(Boolean);
         
         const fullAddress = addressParts.join(', ');
-        text += `*Dirección:* ${fullAddress}\n\n`;
+        text += `*Dirección:* ${fullAddress}\n`;
       } else {
         // Si no hi ha addressInfo, potser hi ha location
         if (event.resource?.location) {
-          text += `*Dirección:* ${event.resource.location}\n\n`;
+          text += `*Dirección:* ${event.resource.location}\n`;
         } else {
-          text += `*Dirección:* ⚠️ Sin dirección asignada\n\n`;
-        }
-      }
-      
-      // 7. Persona que ha registrat la cita (SEMPRE amb nom real de l'empleat)
-      if (employeeInfo) {
-        const employeeName = [employeeInfo.name, employeeInfo.surname]
-          .filter(Boolean)
-          .map(n => n.trim())
-          .join(' ')
-          .trim();
-        text += `*Invitado por:* ${employeeName || 'Sin nombre'}\n`;
-      } else {
-        if (employeeId) {
-          text += `*Invitado por:* ⚠️ Error obteniendo datos del empleado #${employeeId}\n`;
-        } else {
-          text += `*Invitado por:* ⚠️ Sin empleado asignado\n`;
+          text += `*Dirección:* ⚠️ Sin dirección asignada\n`;
         }
       }
       
