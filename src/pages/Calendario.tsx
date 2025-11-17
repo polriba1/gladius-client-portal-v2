@@ -672,6 +672,38 @@ const Calendario = () => {
     }
   };
 
+  // Fetch incident by ID from STEL API (to get address-id)
+  const fetchIncidentById = async (incidentId: number): Promise<any | null> => {
+    try {
+      console.log(`📋 Fetching incident info for ID: ${incidentId}`);
+      
+      if (import.meta.env.DEV) {
+        const response = await fetch(`/api/stel/app/incidents/${incidentId}`, {
+          headers: {
+            'APIKEY': import.meta.env.VITE_STEL_API_KEY,
+          },
+        });
+        
+        if (!response.ok) {
+          console.warn(`⚠️ Incident ${incidentId} not found (${response.status})`);
+          return null;
+        }
+        
+        const incidentData = await response.json();
+        console.log(`✅ Incident data received:`, incidentData);
+        return Array.isArray(incidentData) ? incidentData[0] : incidentData;
+      } else {
+        // TODO: Create edge function if needed
+        // For now, return null in PROD
+        console.warn('⚠️ fetchIncidentById not implemented in PROD yet');
+        return null;
+      }
+    } catch (error) {
+      console.error(`❌ Failed to fetch incident ${incidentId}:`, error);
+      return null;
+    }
+  };
+
   // Generate WhatsApp formatted text for technician's day
   const generateWhatsAppText = async (technicianName: string, events: CalendarEvent[], date: Date) => {
     console.log(`📱 Generating WhatsApp text for ${technicianName} with ${events.length} events`);
@@ -727,12 +759,36 @@ const Calendario = () => {
       }
     });
     
-    const addressIds = filteredEvents.map((event) => {
-      let addressId = event.resource?.['address-path']?.split('/').pop();
-      if (!addressId || addressId === '' || addressId === 'undefined') {
-        addressId = event.resource?.['address-id']?.toString();
+    // Events NO tenen address-id directament, cal buscar-lo a través de la incidència vinculada
+    const addressPromises = filteredEvents.map(async (event, index) => {
+      try {
+        // Primer: intentar obtenir address-id directament (per si de cas)
+        let addressId = event.resource?.['address-path']?.split('/').pop();
+        if (!addressId || addressId === '' || addressId === 'undefined') {
+          addressId = event.resource?.['address-id']?.toString();
+        }
+        
+        // Si no tenim address-id però tenim incident-id, buscar la incidència
+        if ((!addressId || addressId === 'undefined') && event.resource?.['incident-id']) {
+          console.log(`📋 Event ${event.id}: No address-id, fetching from incident ${event.resource['incident-id']}`);
+          
+          const incident = await fetchIncidentById(event.resource['incident-id']);
+          if (incident) {
+            addressId = incident['address-path']?.split('/').pop() || incident['address-id']?.toString();
+            console.log(`✅ Found address-id from incident: ${addressId}`);
+          }
+        }
+        
+        if (!addressId || addressId === 'undefined') {
+          console.warn(`⚠️ Event ${event.id} has no address-id (tried direct and incident)`);
+          return null;
+        }
+        
+        return await fetchAddressInfo(addressId);
+      } catch (error) {
+        console.error(`❌ Failed to fetch address for event ${event.id}:`, error);
+        return null;
       }
-      return addressId;
     });
     
     const employeeIds = filteredEvents.map((event) => {
@@ -741,21 +797,6 @@ const Calendario = () => {
         employeeId = event.resource?.['creator-id']?.toString();
       }
       return employeeId;
-    });
-    
-    const addressPromises = filteredEvents.map(async (event, index) => {
-      const addressId = addressIds[index];
-      
-      if (!addressId) {
-        console.warn(`⚠️ Event ${event.id} has no address-path or address-id`);
-        return null;
-      }
-      try {
-        return await fetchAddressInfo(addressId);
-      } catch (error) {
-        console.error(`❌ Failed to fetch address ${addressId}:`, error);
-        return null;
-      }
     });
     
     const employeePromises = filteredEvents.map(async (event, index) => {
@@ -786,7 +827,6 @@ const Calendario = () => {
       const addressInfo = addressesInfo[index];
       const employeeInfo = employeesInfo[index];
       const clientId = clientIds[index];
-      const addressId = addressIds[index];
       const employeeId = employeeIds[index];
       
       // 1. Títol/Subject de l'event (amb incident-id si està vinculat)
@@ -827,7 +867,7 @@ const Calendario = () => {
         }
       }
       
-      // 6. Direcció (DIRECTE de l'API d'adreces - més robust!)
+      // 6. Direcció (obtinguda de la incidència vinculada o directament)
       if (addressInfo) {
         const addressParts = [
           addressInfo['address-data'],
@@ -839,8 +879,9 @@ const Calendario = () => {
         const fullAddress = addressParts.join(', ');
         text += `*Dirección:* ${fullAddress}\n\n`;
       } else {
-        if (addressId) {
-          text += `*Dirección:* ⚠️ Error obteniendo dirección #${addressId}\n\n`;
+        // Si no hi ha addressInfo, potser hi ha location
+        if (event.resource?.location) {
+          text += `*Dirección:* ${event.resource.location}\n\n`;
         } else {
           text += `*Dirección:* ⚠️ Sin dirección asignada\n\n`;
         }
@@ -1118,21 +1159,48 @@ const Calendario = () => {
           }
         });
 
-        // Create technician schedules with colors
+        // Create technician schedules with colors from EventTypes
+        const usedColors = new Set<string>();
+        
         const schedules: TechnicianSchedule[] = Array.from(technicianMap.entries())
-          .map(([name, events]) => ({
-            name,
-            events,
-            color: getColorForCalendar(name)
-          }))
+          .map(([name, events]) => {
+            let color: string;
+            
+            // Try to find the EventType for this technician
+            const eventType = Array.from(eventTypesMap.values()).find(et => et.name === name);
+            
+            if (eventType && eventType.color) {
+              // Use color from API
+              color = eventType.color;
+              
+              // Check if color is already used (duplicate)
+              if (usedColors.has(color)) {
+                console.warn(`⚠️ Duplicate color detected for ${name}: ${color}`);
+                // Generate a unique color based on name hash
+                const hash = name.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+                const hue = (hash * 137.508) % 360; // Golden angle for good distribution
+                color = `hsl(${Math.round(hue)}, 70%, 50%)`;
+                console.log(`✅ Generated unique color for ${name}: ${color}`);
+              }
+            } else {
+              // Fallback: use existing logic for "Sin Asignar" or unknown technicians
+              color = getColorForCalendar(name);
+            }
+            
+            usedColors.add(color);
+            
+            return {
+              name,
+              events,
+              color
+            };
+          })
           .sort((a, b) => {
             // Sort "Sin Asignar" last
             if (a.name === 'Sin Asignar') return 1;
             if (b.name === 'Sin Asignar') return -1;
-            // Sort technicians numerically (TEC080, TEC087, TEC090, etc.)
-            const aNum = parseInt(a.name.replace('TEC', '')) || 0;
-            const bNum = parseInt(b.name.replace('TEC', '')) || 0;
-            return aNum - bNum;
+            // Sort technicians alphabetically
+            return a.name.localeCompare(b.name);
           })
         
         // Find the earliest event date to help user navigate
