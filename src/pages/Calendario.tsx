@@ -485,34 +485,59 @@ const Calendario = () => {
         console.log(`✅ Found client in /potentialClients: ${client.name || client['legal-name']} (ID: ${client.id})`);
         return client;
       } else {
-        // PROD: use Supabase Edge Function
-        // stel-client already handles fallback to potentialClients internally
-        console.log(`📡 [PROD] Invoking stel-client Edge Function for client ${clientId}`);
-        const { data, error } = await supabase.functions.invoke('stel-client', {
-          body: { clientId },
-        });
-        
-        if (error) {
-          console.error(`❌ Edge function error:`, error);
-          throw error;
+        // PROD: use Supabase Edge Functions with explicit fallback handling
+        const parseClient = (payload: unknown) => {
+          const candidate = Array.isArray(payload) ? payload[0] : payload;
+          if (!candidate || typeof candidate !== 'object') return null;
+          const clientObj = candidate as Record<string, unknown>;
+          const hasId = Boolean(clientObj.id);
+          const hasName = Boolean(clientObj['legal-name'] || clientObj['name']);
+          return hasId || hasName ? clientObj : null;
+        };
+
+        const invokeEdgeFunction = async (functionName: string) => {
+          console.log(`📡 [PROD] Invoking ${functionName} Edge Function for client ${clientId}`);
+          const { data, error } = await supabase.functions.invoke(functionName, {
+            body: { clientId },
+          });
+
+          if (error) {
+            console.error(`❌ ${functionName} Edge Function error:`, error);
+            throw new Error(error.message || `Edge function ${functionName} failed`);
+          }
+
+          const potentialError = (data as Record<string, unknown>)?.error;
+          if (potentialError) {
+            console.error(`❌ ${functionName} Edge Function returned error:`, potentialError);
+            throw new Error(typeof potentialError === 'string' ? potentialError : 'Unknown edge function error');
+          }
+
+          return data;
+        };
+
+        try {
+          const primaryData = await invokeEdgeFunction('stel-client');
+          const client = parseClient(primaryData);
+
+          if (client) {
+            console.log(`✅ Found client via stel-client: ${client.name || client['legal-name']} (ID: ${client.id ?? 'N/A'})`);
+            return client;
+          }
+
+          console.warn(`⚠️ stel-client did not return a valid client payload. Falling back to stel-potential-client...`);
+        } catch (primaryError) {
+          console.warn(`⚠️ stel-client invocation failed (${primaryError instanceof Error ? primaryError.message : primaryError}). Trying stel-potential-client...`);
         }
-        
-        console.log(`✅ Client data received from Edge Function:`, data);
-        
-        // Check if Edge Function returned an error response (e.g., { error: "...", clientId: "..." })
-        if (data && data.error) {
-          console.error(`❌ Edge function returned error:`, data.error);
-          throw new Error(data.error);
+
+        const fallbackData = await invokeEdgeFunction('stel-potential-client');
+        const fallbackClient = parseClient(fallbackData);
+
+        if (!fallbackClient) {
+          throw new Error(`Client ${clientId} not found in potential clients response`);
         }
-        
-        const client = Array.isArray(data) ? data[0] : data;
-        
-        if (!client || !client.id) {
-          throw new Error(`Client ${clientId} not found or invalid response`);
-        }
-        
-        console.log(`✅ Found client: ${client.name || client['legal-name']} (ID: ${client.id})`);
-        return client;
+
+        console.log(`✅ Found client via stel-potential-client: ${fallbackClient.name || fallbackClient['legal-name']} (ID: ${fallbackClient.id ?? 'N/A'})`);
+        return fallbackClient;
       }
     } catch (error) {
       console.error(`❌ Error fetching client ${clientId}:`, error);
@@ -648,22 +673,53 @@ const Calendario = () => {
 
   // Generate WhatsApp formatted text for technician's day
   const generateWhatsAppText = async (technicianName: string, events: CalendarEvent[], date: Date) => {
+    console.log(`📱 Generating WhatsApp text for ${technicianName} with ${events.length} events`);
+
+    // 🚫 CRITICAL: Filter out I-PRT incidents from WhatsApp text
+    const filteredEvents = events.filter(event => {
+      const reference = (event.resource?.reference ?? '').toString();
+      const fullReference = (event.resource?.['full-reference'] ?? '').toString();
+      const title = (event.title ?? '').toString();
+
+      // Check all relevant identifiers for I-PRT regardless of case
+      const fieldsToCheck = [reference, fullReference, title].map(value => value.toUpperCase());
+      const isIPRT = fieldsToCheck.some(value => value.includes('I-PRT'));
+
+      console.log(`WhatsApp Filter - Ref: "${reference}" | Full: "${fullReference}" | Title: "${title}" | I-PRT? ${isIPRT}`);
+
+      if (isIPRT) {
+        console.log(`Blocked I-PRT incident from WhatsApp: ${fullReference || reference || title}`);
+        return false;
+      }
+
+      console.log(`Allowed incident: ${fullReference || reference || title}`);
+      return true;
+    });
+
+    console.log(`✅ After filtering: ${filteredEvents.length} events (removed ${events.length - filteredEvents.length} I-PRT incidents)`);
+
+    // If no events left after filtering, return empty message
+    if (filteredEvents.length === 0) {
+      const dateStr = moment(date).format('dddd, D [de] MMMM [de] YYYY');
+      return `📋 *Agenda para ${technicianName}*\n📅 ${dateStr}\n⏱️ Total: 0 servicios (0.0h)\n\nNo hay servicios programados para esta fecha.`;
+    }
+
     const dateStr = moment(date).format('dddd, D [de] MMMM [de] YYYY');
-    const totalHours = events.reduce((acc, event) => {
+    const totalHours = filteredEvents.reduce((acc, event) => {
       return acc + moment.duration(moment(event.end).diff(moment(event.start))).asHours();
     }, 0);
 
     let text = `📋 *Agenda para ${technicianName}*\n`;
     text += `📅 ${dateStr}\n`;
-    text += `⏱️ Total: ${events.length} servicios (${totalHours.toFixed(1)}h)\n`;
+    text += `⏱️ Total: ${filteredEvents.length} servicios (${totalHours.toFixed(1)}h)\n`;
     text += `\n`;
     text += `━━━━━━━━━━━━━━━━━━━━\n\n`;
 
     // Fetch all client info, address info, and employee info in parallel
-    console.log(`📡 Fetching data for ${events.length} events...`);
+    console.log(`📡 Fetching data for ${filteredEvents.length} events...`);
     
     // Extract all IDs first to maintain consistency
-    const clientIds = events.map((event) => {
+    const clientIds = filteredEvents.map((event) => {
       let clientId = event.resource?.['account-path']?.split('/').pop();
       if (!clientId || clientId === '' || clientId === 'undefined') {
         clientId = event.resource?.['account-id']?.toString();
@@ -671,10 +727,10 @@ const Calendario = () => {
       return clientId;
     });
     
-    const clientPromises = events.map(async (event, index) => {
+    const clientPromises = filteredEvents.map(async (event, index) => {
       const clientId = clientIds[index];
       
-      console.log(`📋 Event ${index + 1}/${events.length}: Client ID:`, clientId, '| account-path:', event.resource?.['account-path'], '| account-id:', event.resource?.['account-id']);
+      console.log(`📋 Event ${index + 1}/${filteredEvents.length}: Client ID:`, clientId, '| account-path:', event.resource?.['account-path'], '| account-id:', event.resource?.['account-id']);
       
       if (!clientId) {
         console.warn(`⚠️ Event ${event.id} has no account-path or account-id`);
@@ -691,7 +747,7 @@ const Calendario = () => {
       }
     });
     
-    const addressIds = events.map((event) => {
+    const addressIds = filteredEvents.map((event) => {
       let addressId = event.resource?.['address-path']?.split('/').pop();
       if (!addressId || addressId === '' || addressId === 'undefined') {
         addressId = event.resource?.['address-id']?.toString();
@@ -699,7 +755,7 @@ const Calendario = () => {
       return addressId;
     });
     
-    const employeeIds = events.map((event) => {
+    const employeeIds = filteredEvents.map((event) => {
       let employeeId = event.resource?.['creator-path']?.split('/').pop();
       if (!employeeId || employeeId === '' || employeeId === 'undefined') {
         employeeId = event.resource?.['creator-id']?.toString();
@@ -707,7 +763,7 @@ const Calendario = () => {
       return employeeId;
     });
     
-    const addressPromises = events.map(async (event, index) => {
+    const addressPromises = filteredEvents.map(async (event, index) => {
       const addressId = addressIds[index];
       
       if (!addressId) {
@@ -722,7 +778,7 @@ const Calendario = () => {
       }
     });
     
-    const employeePromises = events.map(async (event, index) => {
+    const employeePromises = filteredEvents.map(async (event, index) => {
       const employeeId = employeeIds[index];
       
       if (!employeeId) {
@@ -745,7 +801,7 @@ const Calendario = () => {
     
     console.log(`✅ Fetched ${clientsInfo.filter(c => c).length} clients, ${addressesInfo.filter(a => a).length} addresses, and ${employeesInfo.filter(e => e).length} employees`);
 
-    events.forEach((event, index) => {
+    filteredEvents.forEach((event, index) => {
       const clientInfo = clientsInfo[index];
       const addressInfo = addressesInfo[index];
       const employeeInfo = employeesInfo[index];
@@ -772,7 +828,10 @@ const Calendario = () => {
       // 4. Tipo de incidencia
       const incidentTypeId = event.resource?.['incident-type-id'];
       const incidentTypeName = incidentTypeId ? incidentTypes.get(incidentTypeId)?.name : null;
-      text += `*Tipo:* ${incidentTypeName || 'N/A'}\n\n`;
+      const normalizedIncidentType = incidentTypeName?.trim();
+      if (normalizedIncidentType && !['N/A', 'NA'].includes(normalizedIncidentType.toUpperCase())) {
+        text += `*Tipo:* ${normalizedIncidentType}\n\n`;
+      }
       
       // 5. Client (SEMPRE amb nom real de l'API)
       if (clientInfo) {
@@ -822,7 +881,7 @@ const Calendario = () => {
       }
       
       // Separator between events
-      if (index < events.length - 1) {
+      if (index < filteredEvents.length - 1) {
         text += `\n━━━━━━━━━━━━━━━━━━━━\n\n`;
       }
     });
@@ -914,6 +973,11 @@ const Calendario = () => {
   const fetchIncidents = async () => {
     console.log('🚀 fetchIncidents called - LOADING INCIDENTS (NOT EVENTS)!');
     setLoading(true);
+    
+    // 🔄 Clear WhatsApp text cache when fetching new incidents
+    console.log('🗑️ Clearing WhatsApp text cache...');
+    setWhatsappTextCache(new Map());
+    
     try {
       const today = new Date();
       const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
@@ -1023,14 +1087,28 @@ const Calendario = () => {
         // Map incidents to calendar events with real TEC codes
         const calendarEvents: CalendarEvent[] = validIncidents.map((incident, index) => {
           // Incidents have a single 'date' field: "2024-09-30T09:00:00+0000"
-          // The API already sends dates in CET, so we parse them as-is without timezone conversion
-          const startMoment = moment(incident.date);
-          const startDate = startMoment.toDate();
+          // ⚠️ CRITICAL FIX: The STEL API sends dates with +0000 but they are ALREADY in local time (CET/CEST)
+          // We need to extract the time values (09:00:00) and use them AS-IS without timezone conversion
+          // Example: "2024-09-30T09:00:00+0000" should display as 09:00, NOT 11:00
+          
+          // Parse the date string to extract the exact time values
+          const dateStr = incident.date; // e.g., "2024-09-30T09:00:00+0000"
+          const [datePart, timePartWithTZ] = dateStr.split('T');
+          const timePart = timePartWithTZ.split('+')[0].split('-')[0]; // Remove timezone
+          
+          const [year, month, day] = datePart.split('-').map(Number);
+          const timeComponents = timePart.split(':');
+          const hours = parseInt(timeComponents[0]);
+          const minutes = parseInt(timeComponents[1]);
+          const seconds = timeComponents[2] ? parseInt(timeComponents[2]) : 0;
+          
+          // Create a Date object with the LOCAL time values (no timezone conversion)
+          const startDate = new Date(year, month - 1, day, hours, minutes, seconds);
           
           // incident.length is in MINUTES (e.g., length: 60 = 1 hour)
           // Default to 120 minutes (2 hours) if not specified
           const durationMinutes = incident.length || 120;
-          const endDate = startMoment.clone().add(durationMinutes, 'minutes').toDate();
+          const endDate = new Date(startDate.getTime() + durationMinutes * 60000);
           
           // Get TEC code from assignee map
           const technicianId = incident['assignee-id'] 
@@ -1242,7 +1320,7 @@ const Calendario = () => {
         const allIncidents = (data ?? []) as StelIncident[];
         console.log(`✅ Total incidents fetched: ${allIncidents.length}`);
         
-        // Filter: not deleted AND incident date between 1 month ago and 1 month ahead
+        // Filter: not deleted AND not I-PRT AND incident date between 1 month ago and 1 month ahead
         const oneMonthAgoDate = new Date();
         oneMonthAgoDate.setMonth(oneMonthAgoDate.getMonth() - 1);
         const oneMonthAheadDate = new Date();
@@ -1251,6 +1329,13 @@ const Calendario = () => {
         const validIncidents = allIncidents.filter((incident) => {
           if (incident.deleted) return false;
           if (!incident.date) return false;
+          
+          // Exclude I-PRT incidents (reference starts with "I-PRT")
+          if (incident.reference && incident.reference.startsWith('I-PRT')) {
+            console.log(`🚫 Excluding I-PRT incident: ${incident.reference}`);
+            return false;
+          }
+          
           const incidentDate = new Date(incident.date);
           return incidentDate >= oneMonthAgoDate && incidentDate <= oneMonthAheadDate;
         });
