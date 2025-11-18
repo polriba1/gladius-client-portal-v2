@@ -33,14 +33,7 @@ serve(async (req: Request) => {
       }
     }
 
-    if (ids.length === 0) {
-      console.log("No IDs provided, returning empty array")
-      return new Response(JSON.stringify([]), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      })
-    }
-
-    console.log(`Fetching ${ids.length} event types: ${ids.join(', ')}`)
+    console.log(`Fetching event types${ids.length > 0 ? `: ${ids.join(', ')}` : ' (all)'}`)
 
     // STEL API call to get event types
     const apiUrl = `https://app.stelorder.com/app/event-types`
@@ -58,14 +51,19 @@ serve(async (req: Request) => {
     const allEventTypes = await response.json()
     console.log(`Total event types fetched: ${allEventTypes.length}`)
 
-    // Filter by requested IDs
-    const filtered = allEventTypes.filter((eventType: any) => {
-      return ids.includes(eventType.id)
-    })
+    // Filter by requested IDs if provided, otherwise return all
+    let result: any[];
+    if (ids.length > 0) {
+      result = allEventTypes.filter((eventType: any) => {
+        return ids.includes(eventType.id)
+      })
+      console.log(`Filtered ${result.length}/${allEventTypes.length} event types by requested IDs`)
+    } else {
+      result = allEventTypes
+      console.log(`Returning all ${allEventTypes.length} event types`)
+    }
 
-    console.log(`Filtered ${filtered.length}/${allEventTypes.length} event types by requested IDs`)
-
-    return new Response(JSON.stringify(filtered), {
+    return new Response(JSON.stringify(result), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     })
   } catch (error) {
