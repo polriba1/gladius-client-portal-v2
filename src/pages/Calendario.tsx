@@ -14,7 +14,7 @@ import moment from 'moment';
 import 'moment/locale/es'; // Import Spanish locale
 import 'react-big-calendar/lib/css/react-big-calendar.css';
 import './Calendario.css';
-import { Calendar as CalendarIcon, MapPin, Clock, FileText, User, RefreshCw, ChevronLeft, ChevronRight, MessageSquare, Copy, Check } from "lucide-react";
+import { Calendar as CalendarIcon, MapPin, Clock, FileText, User, RefreshCw, ChevronLeft, ChevronRight, MessageSquare, Copy, Check, Settings } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // Configure moment to use Spanish locale with 24-hour format
@@ -116,6 +116,129 @@ interface TechnicianSchedule {
   color: string;
   hasIncidentsForWhatsApp?: boolean; // Optional flag to indicate if incidents are available for WhatsApp
 }
+
+// Color Picker Dialog Component
+interface ColorPickerDialogProps {
+  technicianName: string;
+  currentColor: string;
+  onColorChange: (technicianName: string, newColor: string) => void;
+}
+
+const ColorPickerDialog = ({ technicianName, currentColor, onColorChange }: ColorPickerDialogProps) => {
+  const [isOpen, setIsOpen] = useState(false);
+
+  // Extended color palette with 40 very distinct colors
+  const EXTENDED_PALETTE = [
+    // Reds and Pinks
+    'hsl(0 90% 50%)',    // Bright Red
+    'hsl(350 85% 55%)',  // Hot Pink
+    'hsl(340 80% 60%)',  // Pink
+    'hsl(330 75% 65%)',  // Light Pink
+
+    // Oranges and Yellows
+    'hsl(30 95% 55%)',   // Vibrant Orange
+    'hsl(45 90% 50%)',   // Orange-Yellow
+    'hsl(60 100% 45%)',  // Pure Yellow
+    'hsl(75 85% 50%)',   // Yellow-Green
+
+    // Greens
+    'hsl(90 80% 40%)',   // Yellow-Green
+    'hsl(120 100% 30%)', // Pure Green
+    'hsl(135 85% 35%)',  // Green-Cyan
+    'hsl(150 90% 35%)',  // Turquoise
+
+    // Cyans and Blues
+    'hsl(180 100% 35%)', // Cyan
+    'hsl(195 90% 40%)',  // Sky Blue
+    'hsl(210 100% 45%)', // Bright Blue
+    'hsl(225 85% 50%)',  // Blue
+    'hsl(240 80% 55%)',  // Blue-Violet
+    'hsl(255 75% 60%)',  // Light Blue
+
+    // Purples and Violets
+    'hsl(270 85% 50%)',  // Purple
+    'hsl(285 80% 55%)',  // Magenta-Purple
+    'hsl(300 75% 60%)',  // Magenta
+    'hsl(315 70% 65%)',  // Pink-Purple
+
+    // Browns and Earth Tones
+    'hsl(15 80% 45%)',   // Red-Orange
+    'hsl(25 75% 40%)',   // Brown-Orange
+    'hsl(35 70% 45%)',   // Brown
+    'hsl(45 65% 40%)',   // Olive Brown
+
+    // Grays and Neutrals
+    'hsl(0 0% 30%)',     // Dark Gray
+    'hsl(0 0% 45%)',     // Medium Gray
+    'hsl(0 0% 60%)',     // Light Gray
+    'hsl(0 0% 75%)',     // Very Light Gray
+
+    // Additional Bright Colors
+    'hsl(45 100% 50%)',  // Bright Yellow
+    'hsl(90 100% 35%)',  // Bright Green
+    'hsl(180 100% 40%)', // Bright Cyan
+    'hsl(240 100% 50%)', // Bright Blue
+    'hsl(300 100% 50%)', // Bright Magenta
+    'hsl(330 100% 55%)', // Bright Pink
+
+    // Pastels
+    'hsl(30 70% 75%)',   // Peach
+    'hsl(60 60% 80%)',   // Pale Yellow
+    'hsl(120 50% 75%)',  // Mint
+    'hsl(180 40% 80%)',  // Pale Cyan
+    'hsl(240 50% 75%)',  // Lavender
+    'hsl(300 40% 80%)',  // Pale Pink
+  ];
+
+  const handleColorSelect = (color: string) => {
+    onColorChange(technicianName, color);
+    setIsOpen(false);
+  };
+
+  return (
+    <Dialog open={isOpen} onOpenChange={setIsOpen}>
+      <DialogTrigger asChild>
+        <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
+          <Settings className="h-4 w-4" />
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <div
+              className="w-4 h-4 rounded-full"
+              style={{ backgroundColor: currentColor }}
+            />
+            Cambiar color de {technicianName}
+          </DialogTitle>
+          <DialogDescription>
+            Selecciona un nuevo color para este técnico. Los cambios se guardarán permanentemente.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid grid-cols-8 gap-2 py-4">
+          {EXTENDED_PALETTE.map((color, index) => (
+            <button
+              key={index}
+              onClick={() => handleColorSelect(color)}
+              className={`w-8 h-8 rounded-full border-2 transition-all hover:scale-110 ${
+                currentColor === color ? 'border-gray-800 shadow-lg' : 'border-gray-300'
+              }`}
+              style={{ backgroundColor: color }}
+              title={`Color ${index + 1}`}
+            />
+          ))}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setIsOpen(false)}>
+            Cancelar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+};
 
 // WhatsApp Dialog Component
 interface WhatsAppDialogProps {
@@ -1888,6 +2011,28 @@ const Calendario = () => {
     }
   };
 
+  // Handle color changes for technicians with persistent storage
+  const handleTechnicianColorChange = (technicianName: string, newColor: string) => {
+    console.log(`🎨 Changing color for ${technicianName} to ${newColor}`);
+
+    // Load current color map
+    const currentMap = loadColorMap();
+
+    // Update the color for this technician
+    currentMap[technicianName] = newColor;
+
+    // Save to localStorage
+    saveColorMap(currentMap);
+
+    // Force re-render by updating state (this will trigger getColorForCalendar to use new colors)
+    setTechnicianSchedules(prev => prev.map(schedule => ({
+      ...schedule,
+      color: getColorForCalendar(schedule.name)
+    })));
+
+    console.log(`✅ Color saved for ${technicianName}: ${newColor}`);
+  };
+
   if (!isAuthenticated) return null;
 
   return (
@@ -2110,11 +2255,16 @@ const Calendario = () => {
                       <CardHeader className="pb-3 sticky top-0 bg-background z-10" style={{ borderBottom: `3px solid ${schedule.color}` }}>
                         <CardTitle className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
-                            <div 
-                              className="w-4 h-4 rounded-full" 
+                            <div
+                              className="w-4 h-4 rounded-full"
                               style={{ backgroundColor: schedule.color }}
                             />
                             <span className="text-lg font-bold">{schedule.name}</span>
+                            <ColorPickerDialog
+                              technicianName={schedule.name}
+                              currentColor={schedule.color}
+                              onColorChange={handleTechnicianColorChange}
+                            />
                           </div>
                           <div className="flex items-center gap-1">
                             <Badge variant="outline" className="text-xs">{schedule.todayEventsCount}</Badge>
