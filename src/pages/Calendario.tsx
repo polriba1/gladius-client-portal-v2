@@ -2041,15 +2041,18 @@ const Calendario = () => {
           const eventTypeToTecMap = new Map<number, string>();
 
           if (uniqueEventTypeIds.length > 0) {
+            let eventTypesFetchSucceeded = false;
+            
             try {
+              console.log('🔄 Attempting to fetch event types from stel-event-types...');
               const { data: eventTypesData, error: eventTypesError } = await supabase.functions.invoke('stel-event-types', {
                 body: { ids: uniqueEventTypeIds },
               });
 
               if (eventTypesError) {
                 console.warn('⚠️ Could not fetch event types:', eventTypesError);
-              } else {
-                const eventTypes = (eventTypesData ?? []) as Array<{ id: number; name: string }>;
+              } else if (eventTypesData && Array.isArray(eventTypesData) && eventTypesData.length > 0) {
+                const eventTypes = eventTypesData as Array<{ id: number; name: string }>;
                 console.log(`✅ Fetched ${eventTypes.length} event types for IDs: ${uniqueEventTypeIds.join(', ')}`);
 
                 // Debug: show which IDs were found vs requested
@@ -2071,9 +2074,69 @@ const Calendario = () => {
                 });
 
                 console.log(`✅ Mapped ${eventTypeToTecMap.size}/${eventTypes.length} event types to TEC codes`);
+                eventTypesFetchSucceeded = eventTypeToTecMap.size > 0;
+              } else {
+                console.warn('⚠️ Event types data is empty or invalid');
               }
             } catch (eventTypesException) {
               console.warn('⚠️ Exception fetching event types:', eventTypesException);
+            }
+            
+            // FALLBACK: If event types fetch failed, try to get TEC codes directly from employees
+            if (!eventTypesFetchSucceeded) {
+              console.log('🔄 FALLBACK: Event types fetch failed, trying to get TEC codes from employees...');
+              
+              // Get unique employee IDs from events
+              const uniqueEmployeeIds = [...new Set(
+                validEvents
+                  .map(e => e['assigned-to-id'])
+                  .filter(id => id !== null && id !== undefined)
+              )];
+              
+              console.log(`🔍 Found ${uniqueEmployeeIds.length} unique employees to fetch`);
+              
+              // Fetch each employee and extract TEC from their name
+              const employeeToTecMap = new Map<number, string>();
+              
+              for (const employeeId of uniqueEmployeeIds) {
+                try {
+                  const { data: employeeData, error: employeeError } = await supabase.functions.invoke('stel-employee', {
+                    body: { employeeId: employeeId },
+                  });
+                  
+                  if (!employeeError && employeeData) {
+                    const employee = employeeData as { id: number; name: string };
+                    const techMatch = employee.name?.match(/TEC\s*(\d+)/i);
+                    if (techMatch) {
+                      const normalizedTech = `TEC${String(techMatch[1]).padStart(3, '0')}`;
+                      employeeToTecMap.set(employeeId, normalizedTech);
+                      console.log(`✅ FALLBACK: Mapped employee ${employeeId} (${employee.name}) to ${normalizedTech}`);
+                    }
+                  }
+                } catch (employeeException) {
+                  console.warn(`⚠️ FALLBACK: Could not fetch employee ${employeeId}:`, employeeException);
+                }
+              }
+              
+              // Map employee TEC codes back to event types
+              if (employeeToTecMap.size > 0) {
+                validEvents.forEach(event => {
+                  const employeeId = event['assigned-to-id'];
+                  const eventTypeId = event['event-type-id'];
+                  
+                  if (employeeId && eventTypeId && employeeToTecMap.has(employeeId)) {
+                    const tecCode = employeeToTecMap.get(employeeId)!;
+                    if (!eventTypeToTecMap.has(eventTypeId)) {
+                      eventTypeToTecMap.set(eventTypeId, tecCode);
+                      console.log(`✅ FALLBACK: Mapped event-type ${eventTypeId} to ${tecCode} via employee ${employeeId}`);
+                    }
+                  }
+                });
+                
+                console.log(`✅ FALLBACK: Successfully mapped ${eventTypeToTecMap.size} event types via employee data`);
+              } else {
+                console.warn('⚠️ FALLBACK: Could not map any employees to TEC codes');
+              }
             }
           }
 

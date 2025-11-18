@@ -4,6 +4,11 @@ Aquest document explica com desplegar les noves funcions Edge de STEL a Supabase
 
 ## 📋 Funcions a Desplegar
 
+### Funcions de Calendari (CRÍTICAS - Requerides per Calendario.tsx)
+- `stel-events` - Obté events de STEL Order API
+- `stel-event-types` - Obté tipus d'events i TEC codes de STEL Order API
+
+### Altres Funcions STEL
 - `stel-incidents` - Obté incidències de STEL Order API
 - `stel-client` - Obté informació de clients de STEL Order API
 - `stel-employee` - Obté informació d'empleats de STEL Order API
@@ -15,7 +20,9 @@ Ves a: https://supabase.com/dashboard/project/fvcxkcmvlpuootmtfcty/functions
 
 ### Pas 2: Desplegar cada funció
 
-Per cada funció (`stel-incidents`, `stel-client`, `stel-employee`):
+**🚨 PRIORITAT ALTA: Desplegar primer `stel-events` i `stel-event-types` per solucionar el problema del calendari!**
+
+Per cada funció (`stel-events`, `stel-event-types`, `stel-incidents`, `stel-client`, `stel-employee`):
 
 1. **Crea o actualitza la funció:**
    - Si no existeix: Clica "New Edge Function"
@@ -23,6 +30,8 @@ Per cada funció (`stel-incidents`, `stel-client`, `stel-employee`):
 
 2. **Copia el codi:**
    - Obre el fitxer corresponent:
+     - `supabase/functions/stel-events/index.ts` 🚨 PRIORITAT
+     - `supabase/functions/stel-event-types/index.ts` 🚨 PRIORITAT
      - `supabase/functions/stel-incidents/index.ts`
      - `supabase/functions/stel-client/index.ts`
      - `supabase/functions/stel-employee/index.ts`
@@ -65,7 +74,11 @@ supabase login
 
 ### Desplegar funcions
 ```bash
-# Desplegar totes les funcions STEL
+# 🚨 PRIORITAT ALTA: Desplegar primer les funcions del calendari
+supabase functions deploy stel-events --project-ref fvcxkcmvlpuootmtfcty
+supabase functions deploy stel-event-types --project-ref fvcxkcmvlpuootmtfcty
+
+# Desplegar altres funcions STEL
 supabase functions deploy stel-incidents --project-ref fvcxkcmvlpuootmtfcty
 supabase functions deploy stel-client --project-ref fvcxkcmvlpuootmtfcty
 supabase functions deploy stel-employee --project-ref fvcxkcmvlpuootmtfcty
@@ -103,14 +116,18 @@ Després de desplegar, verifica que funcionen:
 - **Causa:** La funció no està desplegada
 - **Solució:** Desplega la funció des del dashboard o amb CLI
 
-## 📝 Canvis Respecte a `stel-events`
+## 📝 Funcions Actuals
 
-Anteriorment teníem `stel-events`, ara tenim:
-- ✅ `stel-incidents` - Reemplaça `stel-events` (ara usa incidents en lloc d'events)
-- ✅ `stel-client` - Nova funció per obtenir info de clients
-- ✅ `stel-employee` - Nova funció per obtenir info d'empleats
+### Funcions de Calendari (Events)
+- ✅ `stel-events` - Obté events per mostrar al calendari
+- ✅ `stel-event-types` - Obté tipus d'events i extreu TEC codes dels noms
 
-La funció `stel-events` ja no es necessita i pot ser eliminada.
+### Funcions WhatsApp (Incidents)
+- ✅ `stel-incidents` - Obté incidències per mostrar al WhatsApp
+- ✅ `stel-client` - Obté informació de clients
+- ✅ `stel-employee` - Obté informació d'empleats i TEC codes
+
+**Important:** Tant `stel-events` com `stel-incidents` són necessaris. El calendari usa EVENTS per la vista del calendari i fa fallback a INCIDENTS per la vista de WhatsApp.
 
 ## 🔗 Referències
 
