@@ -36,7 +36,8 @@ serve(async (req: Request) => {
     console.log(`Fetching event types${ids.length > 0 ? `: ${ids.join(', ')}` : ' (all)'}`)
 
     // STEL API call to get event types
-    const apiUrl = `https://app.stelorder.com/app/event-types`
+    // Note: Using same path as DEV mode but with direct API call
+    const apiUrl = `https://app.stelorder.com/app/eventTypes${ids.length === 0 ? '?limit=500' : ''}`
 
     const response = await fetch(apiUrl, {
       headers: { APIKEY: stelApiKey },
