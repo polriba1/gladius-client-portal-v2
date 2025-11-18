@@ -1652,8 +1652,38 @@ const Calendario = () => {
               console.log(`✅ Mapped ${eventTypeToTecMap.size} event types to TEC codes`);
             }
           } else {
-            // PROD: For now, skip event types in PROD (can be added later with edge function)
-            console.warn(`⚠️ Event types not available in PROD mode yet`);
+            // PROD: Load all event types via Edge Function (same as DEV but via Supabase)
+            try {
+              const { data: allEventTypesData, error: eventTypesError } = await supabase.functions.invoke('stel-event-types', {
+                body: { /* no IDs = load all */ }
+              });
+
+              if (!eventTypesError && allEventTypesData) {
+                const allEventTypes = allEventTypesData as Array<{ id: number; name: string }>;
+                console.log(`✅ Fetched ${allEventTypes.length} event types from Edge Function`);
+
+                // Extract TEC codes from all event types (same logic as DEV)
+                allEventTypes.forEach((eventType) => {
+                  if (uniqueEventTypeIds.includes(eventType.id) && eventType.name) {
+                    // Event type name contains "TEC095" or similar
+                    const techMatch = eventType.name.match(/TEC\s*(\d+)/i);
+                    if (techMatch) {
+                      const normalizedTech = `TEC${String(techMatch[1]).padStart(3, '0')}`;
+                      eventTypeToTecMap.set(eventType.id, normalizedTech);
+                      console.log(`✅ Mapped event type ${eventType.id} (${eventType.name}) to ${normalizedTech}`);
+                    } else {
+                      console.warn(`⚠️ Event type ${eventType.id} has no TEC in name: "${eventType.name}"`);
+                    }
+                  }
+                });
+
+                console.log(`✅ Mapped ${eventTypeToTecMap.size} event types to TEC codes`);
+              } else if (eventTypesError) {
+                console.warn('⚠️ Could not fetch event types:', eventTypesError);
+              }
+            } catch (error) {
+              console.warn('⚠️ Exception fetching event types in PROD:', error);
+            }
           }
         } catch (error) {
           console.warn(`⚠️ Exception fetching event types:`, error);
