@@ -35,33 +35,58 @@ serve(async (req: Request) => {
 
     console.log(`Fetching event types${ids.length > 0 ? `: ${ids.join(', ')}` : ' (all)'}`)
 
-    // STEL API call to get event types
-    // Note: Using same path as DEV mode but with direct API call
-    const apiUrl = `https://app.stelorder.com/app/eventTypes${ids.length === 0 ? '?limit=500' : ''}`
+    let result: any[] = []
 
-    const response = await fetch(apiUrl, {
-      headers: { APIKEY: stelApiKey },
-    })
-
-    if (!response.ok) {
-      const errorText = await response.text()
-      console.error(`STEL API error ${response.status}: ${errorText}`)
-      throw new Error(`API error: ${response.status}`)
-    }
-
-    const allEventTypes = await response.json()
-    console.log(`Total event types fetched: ${allEventTypes.length}`)
-
-    // Filter by requested IDs if provided, otherwise return all
-    let result: any[];
     if (ids.length > 0) {
-      result = allEventTypes.filter((eventType: any) => {
-        return ids.includes(eventType.id)
-      })
-      console.log(`Filtered ${result.length}/${allEventTypes.length} event types by requested IDs`)
+      // Fetch each event type individually by ID using correct endpoint
+      console.log(`Fetching ${ids.length} event types individually...`)
+      
+      for (const id of ids) {
+        try {
+          const apiUrl = `https://app.stelorder.com/app/eventTypes/${id}`
+          console.log(`Fetching event type ${id} from ${apiUrl}`)
+          
+          const response = await fetch(apiUrl, {
+            headers: { APIKEY: stelApiKey },
+          })
+
+          if (response.ok) {
+            const eventType = await response.json()
+            // API returns an array with single element
+            const eventTypeData = Array.isArray(eventType) ? eventType[0] : eventType
+            if (eventTypeData) {
+              result.push(eventTypeData)
+              console.log(`✅ Fetched event type ${id}: ${eventTypeData.name}`)
+            }
+          } else if (response.status === 404) {
+            console.warn(`⚠️ Event type ${id} not found (404)`)
+          } else {
+            const errorText = await response.text()
+            console.error(`❌ Error fetching event type ${id}: ${response.status} - ${errorText}`)
+          }
+        } catch (error) {
+          console.error(`❌ Exception fetching event type ${id}:`, error)
+        }
+      }
+      
+      console.log(`Successfully fetched ${result.length}/${ids.length} event types`)
     } else {
-      result = allEventTypes
-      console.log(`Returning all ${allEventTypes.length} event types`)
+      // Fetch all event types
+      console.log(`Fetching all event types with limit=500`)
+      const apiUrl = `https://app.stelorder.com/app/eventTypes?limit=500`
+
+      const response = await fetch(apiUrl, {
+        headers: { APIKEY: stelApiKey },
+      })
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error(`STEL API error ${response.status}: ${errorText}`)
+        throw new Error(`API error: ${response.status}`)
+      }
+
+      result = await response.json()
+      console.log(`Total event types fetched: ${result.length}`)
     }
 
     return new Response(JSON.stringify(result), {
