@@ -65,6 +65,7 @@ serve(async (req: Request) => {
     interface Event {
       deleted?: boolean
       date?: string
+      'event-type-id'?: number
       [key: string]: unknown
     }
 
@@ -76,6 +77,14 @@ serve(async (req: Request) => {
     })
 
     console.log(`Filtered ${filtered.length}/${allEvents.length} events (not deleted)`)
+
+    // Log unique event type IDs for debugging
+    const uniqueEventTypeIds = [...new Set(
+      filtered
+        .map((e: Event) => e['event-type-id'])
+        .filter(id => id !== null && id !== undefined)
+    )]
+    console.log(`Event type IDs found in events: ${uniqueEventTypeIds.join(', ')}`)
 
     return new Response(JSON.stringify(filtered), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
