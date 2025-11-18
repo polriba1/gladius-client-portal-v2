@@ -2064,7 +2064,7 @@ const Calendario = () => {
               .filter(id => id !== null && id !== undefined)
           )];
 
-          console.log(`🔍 Found ${uniqueEventTypeIds.length} unique event types, fetching event types...`);
+          console.log(`🔍 Found ${uniqueEventTypeIds.length} unique event types: ${uniqueEventTypeIds.join(', ')}`);
 
           // Fetch event types if we have any
           const eventTypeToTecMap = new Map<number, string>();
@@ -2079,7 +2079,14 @@ const Calendario = () => {
                 console.warn('⚠️ Could not fetch event types:', eventTypesError);
               } else {
                 const eventTypes = (eventTypesData ?? []) as Array<{ id: number; name: string }>;
-                console.log(`✅ Fetched ${eventTypes.length} event types`);
+                console.log(`✅ Fetched ${eventTypes.length} event types for IDs: ${uniqueEventTypeIds.join(', ')}`);
+
+                // Debug: show which IDs were found vs requested
+                const foundIds = eventTypes.map(et => et.id);
+                const missingIds = uniqueEventTypeIds.filter(id => !foundIds.includes(id));
+                if (missingIds.length > 0) {
+                  console.warn(`⚠️ Missing event types for IDs: ${missingIds.join(', ')}`);
+                }
 
                 eventTypes.forEach(eventType => {
                   const techMatch = eventType.name.match(/TEC\s*(\d+)/i);
@@ -2092,7 +2099,7 @@ const Calendario = () => {
                   }
                 });
 
-                console.log(`✅ Mapped ${eventTypeToTecMap.size} event types to TEC codes`);
+                console.log(`✅ Mapped ${eventTypeToTecMap.size}/${eventTypes.length} event types to TEC codes`);
               }
             } catch (eventTypesException) {
               console.warn('⚠️ Exception fetching event types:', eventTypesException);
