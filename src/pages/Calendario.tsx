@@ -22,8 +22,8 @@ moment.locale('es');
 
 const localizer = momentLocalizer(moment);
 
-// 🚨 VERSION CHECK - This file should ONLY work with INCIDENTS, NOT EVENTS
-console.log('🚨🚨🚨 CALENDARIO VERSION: 2.0 - INCIDENTS ONLY (NOT EVENTS) 🚨🚨🚨');
+// 🚨 VERSION CHECK - This file works with EVENTS for calendar display and INCIDENTS for WhatsApp
+console.log('🚨🚨🚨 CALENDARIO VERSION: 3.0 - EVENTS (Calendar) + INCIDENTS (WhatsApp) 🚨🚨🚨');
 console.log('📅 File loaded at:', new Date().toISOString());
 
 interface StelIncidentType {
@@ -65,12 +65,48 @@ interface StelIncident {
   length: number;
 }
 
+interface StelEvent {
+  id: number;
+  subject: string | null;
+  description: string | null;
+  location: string | null;
+  "start-date": string;
+  "end-date": string;
+  "all-day": boolean;
+  "event-state": "PENDING" | "COMPLETED" | "REFUSED";
+  "calendar-id": number | null;
+  "calendar-path": string | null;
+  "event-type-id": number | null;
+  "event-type-path": string | null;
+  "creator-id": number;
+  "creator-path": string;
+  "account-id": number | null;
+  "account-path": string | null;
+  "asset-id": number | null;
+  "asset-path": string | null;
+  "incident-id": number | null;
+  "incident-path": string | null;
+  "document-id": number | null;
+  "document-path": string | null;
+  "utc-last-modification-date": string;
+  deleted: boolean;
+  path: string;
+}
+
+interface StelEventType {
+  id: number;
+  name: string;
+  path: string;
+  deleted: boolean;
+  "utc-last-modification-date": string;
+}
+
 interface CalendarEvent {
   id: number;
   title: string;
   start: Date;
   end: Date;
-  resource?: StelIncident; // Changed from StelEvent to StelIncident
+  resource?: StelIncident | StelEvent; // Can be either StelIncident or StelEvent
   technician?: string; // Added to track technician
 }
 
@@ -78,6 +114,7 @@ interface TechnicianSchedule {
   name: string;
   events: CalendarEvent[];
   color: string;
+  hasIncidentsForWhatsApp?: boolean; // Optional flag to indicate if incidents are available for WhatsApp
 }
 
 // WhatsApp Dialog Component
@@ -88,6 +125,7 @@ interface WhatsAppDialogProps {
   onCopy: (text: string, name: string) => Promise<void>;
   copiedTech: string | null;
   loading: boolean;
+  key: string; // Force re-render when date changes
 }
 
 const WhatsAppDialog = ({ schedule, currentDate, onGenerateText, onCopy, copiedTech, loading }: WhatsAppDialogProps) => {
@@ -193,6 +231,8 @@ const Calendario = () => {
   const [whatsappTextCache, setWhatsappTextCache] = useState<Map<string, string>>(new Map());
   const [loadingWhatsapp, setLoadingWhatsapp] = useState<string | null>(null);
   const [incidentTypes, setIncidentTypes] = useState<Map<number, StelIncidentType>>(new Map());
+  const [allIncidents, setAllIncidents] = useState<StelIncident[]>([]); // Store incidents for WhatsApp
+  const [assigneeToTecMap, setAssigneeToTecMap] = useState<Map<number, string>>(new Map()); // Map assignee-id to TEC code
 
   // Helper function to get color for technician
   // Persistent color mapping stored in localStorage so each technician keeps the same color
@@ -647,23 +687,167 @@ const Calendario = () => {
   };
 
   // Generate WhatsApp formatted text for technician's day
+  // IMPORTANT: Always use incidents (ruta antiga) to construct WhatsApp text, even if calendar shows events
   const generateWhatsAppText = async (technicianName: string, events: CalendarEvent[], date: Date) => {
+    console.log(`📱 ========================================`);
+    console.log(`📱 Generating WhatsApp text for ${technicianName}`);
+    console.log(`📱 Date: ${moment(date).format('YYYY-MM-DD HH:mm:ss')}`);
+    console.log(`📱 Total incidents loaded: ${allIncidents.length}`);
+    console.log(`📱 AssigneeToTecMap size: ${assigneeToTecMap.size}`);
+    console.log(`📱 AssigneeToTecMap entries:`, Array.from(assigneeToTecMap.entries()));
+    
+    // Step 1: Filter incidents by date and technician (ruta antiga) - EXACT MATCH REQUIRED
+    const targetDateStr = moment(date).format('YYYY-MM-DD');
+    console.log(`📅 Target date (EXACT): ${targetDateStr}`);
+    console.log(`👤 Target technician (EXACT): ${technicianName}`);
+    
+    // Get all incidents for this EXACT technician and EXACT date
+    const incidentsForWhatsApp = allIncidents.filter((incident) => {
+      // Step 1: Must have date
+      if (!incident.date) {
+        console.log(`❌ Incident ${incident.id}: No date`);
+        return false;
+      }
+      
+      // Step 2: Exclude I-PRT incidents
+      if (incident.reference && incident.reference.startsWith('I-PRT')) {
+        console.log(`🚫 Incident ${incident.id}: I-PRT excluded (${incident.reference})`);
+        return false;
+      }
+      
+      // Step 3: Check EXACT date match (parse without timezone conversion)
+      // CRITICAL: incident.date is the SCHEDULED date (when service is planned)
+      // NOT incident['creation-date'] (when incident was created)
+      const scheduledDateStr = incident.date; // SCHEDULED date - e.g., "2024-09-30T09:00:00+0000"
+      const creationDateStr = incident['creation-date']; // When it was created
+      
+      const [datePart] = scheduledDateStr.split('T');
+      const incidentDateStr = datePart.trim(); // Direct date part, no timezone conversion
+      
+      // Log comparison for debugging
+      if (incidentDateStr !== targetDateStr) {
+        // Log if dates are different to help debug
+        console.log(`📅 Incident ${incident.id} (${incident.reference}):`);
+        console.log(`   SCHEDULED date (incident.date): ${incidentDateStr}`);
+        console.log(`   CREATION date (incident['creation-date']): ${creationDateStr ? creationDateStr.split('T')[0] : 'N/A'}`);
+        console.log(`   TARGET date: ${targetDateStr}`);
+        console.log(`   ❌ Date mismatch - using SCHEDULED date, not creation date`);
+        return false;
+      }
+      
+      // Verify we're using scheduled date, not creation date
+      if (creationDateStr && creationDateStr.split('T')[0] === targetDateStr && incidentDateStr !== targetDateStr) {
+        console.warn(`⚠️ WARNING: Incident ${incident.id} creation date matches but scheduled date doesn't!`);
+        console.warn(`   This means the incident was created on ${targetDateStr} but scheduled for ${incidentDateStr}`);
+        console.warn(`   We are correctly using SCHEDULED date (${incidentDateStr}), not creation date`);
+      }
+      
+      // Step 4: Must have assignee-id
+      if (!incident['assignee-id']) {
+        console.log(`⚠️ Incident ${incident.id}: No assignee-id`);
+        return false;
+      }
+      
+      // Step 5: Check EXACT technician match
+      const incidentTecCode = assigneeToTecMap.get(incident['assignee-id']);
+      if (!incidentTecCode) {
+        console.log(`⚠️ Incident ${incident.id}: No TEC code found for assignee-id ${incident['assignee-id']}`);
+        console.log(`   Available assignee-ids in map:`, Array.from(assigneeToTecMap.keys()));
+        console.log(`   Map entries:`, Array.from(assigneeToTecMap.entries()));
+        return false;
+      }
+      
+      // EXACT match required - trim and compare
+      const normalizedIncidentTec = incidentTecCode.trim();
+      const normalizedTargetTec = technicianName.trim();
+      
+      if (normalizedIncidentTec !== normalizedTargetTec) {
+        console.log(`👤 Incident ${incident.id}: Technician EXACT mismatch`);
+        console.log(`   Incident TEC: "${normalizedIncidentTec}" (length: ${normalizedIncidentTec.length})`);
+        console.log(`   Target TEC: "${normalizedTargetTec}" (length: ${normalizedTargetTec.length})`);
+        console.log(`   Assignee-id: ${incident['assignee-id']}`);
+        return false;
+      }
+      
+      // EXACT MATCH FOUND!
+      console.log(`✅✅✅ MATCH FOUND: Incident ${incident.id} (${incident.reference}) - date=${incidentDateStr}, tech=${incidentTecCode}`);
+      return true;
+    });
+    
+    console.log(`📱 ========================================`);
+    console.log(`✅ FINAL RESULT: Found ${incidentsForWhatsApp.length} incidents for ${technicianName} on ${targetDateStr}`);
+    console.log(`📱 Incidents found:`, incidentsForWhatsApp.map(i => ({
+      id: i.id,
+      reference: i.reference,
+      date: i.date,
+      assigneeId: i['assignee-id']
+    })));
+    console.log(`📱 ========================================`);
+    
+    if (incidentsForWhatsApp.length === 0) {
+      const dateStr = moment(date).format('dddd, D [de] MMMM [de] YYYY');
+      return `📋 *Agenda para ${technicianName}*\n📅 ${dateStr}\n⏱️ Total: 0 servicios (0.0h)\n\nNo hay incidencias disponibles para esta fecha.`;
+    }
+    
+    // Step 2: Convert incidents to CalendarEvent format for WhatsApp
+    // CRITICAL: Use incident.date (scheduled date) NOT incident['creation-date'] (when it was created)
+    const validEventsForWhatsApp: CalendarEvent[] = incidentsForWhatsApp.map((incident) => {
+      // IMPORTANT: incident.date is the SCHEDULED date (when the service is planned)
+      // NOT incident['creation-date'] which is when the incident was created
+      const scheduledDateStr = incident.date; // e.g., "2024-09-30T09:00:00+0000" - THIS IS THE SCHEDULED DATE
+      
+      console.log(`📅 Converting incident ${incident.id} (${incident.reference}):`);
+      console.log(`   Scheduled date (incident.date): ${scheduledDateStr}`);
+      console.log(`   Creation date (incident['creation-date']): ${incident['creation-date']}`);
+      console.log(`   Using SCHEDULED date for WhatsApp!`);
+      
+      const [datePart, timePartWithTZ] = scheduledDateStr.split('T');
+      const timePart = timePartWithTZ.split('+')[0].split('-')[0]; // Remove timezone
+      
+      const [year, month, day] = datePart.split('-').map(Number);
+      const timeComponents = timePart.split(':');
+      const hours = parseInt(timeComponents[0]);
+      const minutes = parseInt(timeComponents[1]);
+      const seconds = timeComponents[2] ? parseInt(timeComponents[2]) : 0;
+      
+      // Create a Date object with the LOCAL time values (no timezone conversion)
+      // This represents when the service is SCHEDULED, not when the incident was created
+      const startDate = new Date(year, month - 1, day, hours, minutes, seconds);
+      
+      // incident.length is in MINUTES (e.g., length: 60 = 1 hour)
+      // Default to 120 minutes (2 hours) if not specified
+      const durationMinutes = incident.length || 120;
+      const endDate = new Date(startDate.getTime() + durationMinutes * 60000);
+      
+      console.log(`   Start date for WhatsApp: ${moment(startDate).format('DD/MM/YYYY HH:mm')}`);
+      console.log(`   End date for WhatsApp: ${moment(endDate).format('DD/MM/YYYY HH:mm')}`);
+      
+      return {
+        id: incident.id,
+        title: incident.description || `INC ${incident.reference}`,
+        start: startDate, // SCHEDULED date/time
+        end: endDate, // SCHEDULED date/time + duration
+        resource: incident,
+        technician: technicianName,
+      };
+    });
+    
     const dateStr = moment(date).format('dddd, D [de] MMMM [de] YYYY');
-    const totalHours = events.reduce((acc, event) => {
+    const totalHours = validEventsForWhatsApp.reduce((acc, event) => {
       return acc + moment.duration(moment(event.end).diff(moment(event.start))).asHours();
     }, 0);
 
     let text = `📋 *Agenda para ${technicianName}*\n`;
     text += `📅 ${dateStr}\n`;
-    text += `⏱️ Total: ${events.length} servicios (${totalHours.toFixed(1)}h)\n`;
+    text += `⏱️ Total: ${validEventsForWhatsApp.length} servicios (${totalHours.toFixed(1)}h)\n`;
     text += `\n`;
     text += `━━━━━━━━━━━━━━━━━━━━\n\n`;
 
-    // Fetch all client info, address info, and employee info in parallel
-    console.log(`📡 Fetching data for ${events.length} events...`);
+    // Fetch all client info, address info in parallel
+    console.log(`📡 Fetching data for ${validEventsForWhatsApp.length} incidents...`);
     
-    // Extract all IDs first to maintain consistency
-    const clientIds = events.map((event) => {
+    // Extract all IDs first to maintain consistency (from incidents now)
+    const clientIds = validEventsForWhatsApp.map((event) => {
       let clientId = event.resource?.['account-path']?.split('/').pop();
       if (!clientId || clientId === '' || clientId === 'undefined') {
         clientId = event.resource?.['account-id']?.toString();
@@ -671,13 +855,13 @@ const Calendario = () => {
       return clientId;
     });
     
-    const clientPromises = events.map(async (event, index) => {
+    const clientPromises = validEventsForWhatsApp.map(async (event, index) => {
       const clientId = clientIds[index];
       
-      console.log(`📋 Event ${index + 1}/${events.length}: Client ID:`, clientId, '| account-path:', event.resource?.['account-path'], '| account-id:', event.resource?.['account-id']);
+      console.log(`📋 Incident ${index + 1}/${validEventsForWhatsApp.length}: Client ID:`, clientId, '| account-path:', event.resource?.['account-path'], '| account-id:', event.resource?.['account-id']);
       
       if (!clientId) {
-        console.warn(`⚠️ Event ${event.id} has no account-path or account-id`);
+        console.warn(`⚠️ Incident ${event.id} has no account-path or account-id`);
         return null;
       }
       
@@ -691,7 +875,7 @@ const Calendario = () => {
       }
     });
     
-    const addressIds = events.map((event) => {
+    const addressIds = validEventsForWhatsApp.map((event) => {
       let addressId = event.resource?.['address-path']?.split('/').pop();
       if (!addressId || addressId === '' || addressId === 'undefined') {
         addressId = event.resource?.['address-id']?.toString();
@@ -699,19 +883,11 @@ const Calendario = () => {
       return addressId;
     });
     
-    const employeeIds = events.map((event) => {
-      let employeeId = event.resource?.['creator-path']?.split('/').pop();
-      if (!employeeId || employeeId === '' || employeeId === 'undefined') {
-        employeeId = event.resource?.['creator-id']?.toString();
-      }
-      return employeeId;
-    });
-    
-    const addressPromises = events.map(async (event, index) => {
+    const addressPromises = validEventsForWhatsApp.map(async (event, index) => {
       const addressId = addressIds[index];
       
       if (!addressId) {
-        console.warn(`⚠️ Event ${event.id} has no address-path or address-id`);
+        console.warn(`⚠️ Incident ${event.id} has no address-path or address-id`);
         return null;
       }
       try {
@@ -722,45 +898,31 @@ const Calendario = () => {
       }
     });
     
-    const employeePromises = events.map(async (event, index) => {
-      const employeeId = employeeIds[index];
-      
-      if (!employeeId) {
-        console.warn(`⚠️ Event ${event.id} has no creator-path or creator-id`);
-        return null;
-      }
-      try {
-        return await fetchEmployeeInfo(employeeId);
-      } catch (error) {
-        console.error(`❌ Failed to fetch employee ${employeeId}:`, error);
-        return null;
-      }
-    });
-    
-    const [clientsInfo, addressesInfo, employeesInfo] = await Promise.all([
+    const [clientsInfo, addressesInfo] = await Promise.all([
       Promise.all(clientPromises),
-      Promise.all(addressPromises),
-      Promise.all(employeePromises)
+      Promise.all(addressPromises)
     ]);
     
-    console.log(`✅ Fetched ${clientsInfo.filter(c => c).length} clients, ${addressesInfo.filter(a => a).length} addresses, and ${employeesInfo.filter(e => e).length} employees`);
+    console.log(`✅ Fetched ${clientsInfo.filter(c => c).length} clients, ${addressesInfo.filter(a => a).length} addresses`);
 
-    events.forEach((event, index) => {
+    // IMPORTANT: Always use incidents for WhatsApp text construction (ORIGINAL CODE - MAINTAINED INTACT)
+    validEventsForWhatsApp.forEach((event, index) => {
       const clientInfo = clientsInfo[index];
       const addressInfo = addressesInfo[index];
-      const employeeInfo = employeesInfo[index];
       const clientId = clientIds[index];
       const addressId = addressIds[index];
-      const employeeId = employeeIds[index];
+      
+      // All events here should be incidents (we filtered them above)
+      const stelIncident = event.resource as StelIncident;
       
       // 1. Codi / Títol de l'avís o incidència
       // Format: "Referencia: [full-reference] - [description]"
-      const incidentRef = event.resource?.['full-reference'] || event.resource?.reference || 'N/A';
+      const incidentRef = stelIncident['full-reference'] || stelIncident.reference || 'N/A';
       text += `*Incidencia: ${incidentRef}*\n\n`;
       
       // 2. Descripció del problema o incidència
-      if (event.resource?.description) {
-        text += `${event.resource.description}\n\n`;
+      if (stelIncident.description) {
+        text += `${stelIncident.description}\n\n`;
       }
       
       // 3. Quan (franja horària de la cita)
@@ -770,7 +932,7 @@ const Calendario = () => {
       text += `*Cuándo:* ${startDateTime} - ${endTime}\n\n`;
       
       // 4. Tipo de incidencia
-      const incidentTypeId = event.resource?.['incident-type-id'];
+      const incidentTypeId = stelIncident['incident-type-id'];
       const incidentTypeName = incidentTypeId ? incidentTypes.get(incidentTypeId)?.name : null;
       text += `*Tipo:* ${incidentTypeName || 'N/A'}\n\n`;
       
@@ -805,24 +967,8 @@ const Calendario = () => {
         }
       }
       
-      // 7. Persona que ha registrat la cita (SEMPRE amb nom real de l'empleat)
-      if (employeeInfo) {
-        const employeeName = [employeeInfo.name, employeeInfo.surname]
-          .filter(Boolean)
-          .map(n => n.trim())
-          .join(' ')
-          .trim();
-        text += `*Invitado por:* ${employeeName || 'Sin nombre'}\n`;
-      } else {
-        if (employeeId) {
-          text += `*Invitado por:* ⚠️ Error obteniendo datos del empleado #${employeeId}\n`;
-        } else {
-          text += `*Invitado por:* ⚠️ Sin empleado asignado\n`;
-        }
-      }
-      
-      // Separator between events
-      if (index < events.length - 1) {
+      // Separator between incidents
+      if (index < validEventsForWhatsApp.length - 1) {
         text += `\n━━━━━━━━━━━━━━━━━━━━\n\n`;
       }
     });
@@ -851,26 +997,53 @@ const Calendario = () => {
 
   // Generate WhatsApp text and handle async loading
   const handleGenerateWhatsAppText = async (technicianName: string, events: CalendarEvent[], date: Date) => {
-    const cacheKey = `${technicianName}-${moment(date).format('YYYY-MM-DD')}`;
+    // IMPORTANT: Use the exact date passed, ensure it's normalized to start of day
+    const normalizedDate = new Date(date);
+    normalizedDate.setHours(0, 0, 0, 0);
+    
+    const cacheKey = `${technicianName}-${moment(normalizedDate).format('YYYY-MM-DD')}`;
+    
+    console.log(`🔑 WhatsApp Cache Key: ${cacheKey}`);
+    console.log(`📅 Original date: ${moment(date).format('YYYY-MM-DD HH:mm:ss')}`);
+    console.log(`📅 Normalized date: ${moment(normalizedDate).format('YYYY-MM-DD HH:mm:ss')}`);
     
     // Check cache first
     if (whatsappTextCache.has(cacheKey)) {
+      console.log(`✅ Using cached WhatsApp text for ${cacheKey}`);
+      console.log(`📊 Current cache size: ${whatsappTextCache.size}`);
       return whatsappTextCache.get(cacheKey)!;
     }
+
+    console.log(`🔄 Generating NEW WhatsApp text for ${cacheKey} (not in cache)`);
     
-    // Generate new text
+    // Generate new text - use normalized date
     setLoadingWhatsapp(technicianName);
     try {
-      const text = await generateWhatsAppText(technicianName, events, date);
+      const text = await generateWhatsAppText(technicianName, events, normalizedDate);
       
       // Cache the result
-      setWhatsappTextCache(prev => new Map(prev).set(cacheKey, text));
+      console.log(`💾 Caching WhatsApp text for ${cacheKey}`);
+      setWhatsappTextCache(prev => {
+        const newCache = new Map(prev);
+        newCache.set(cacheKey, text);
+        console.log(`📊 Cache updated - new size: ${newCache.size}`);
+        return newCache;
+      });
       
       return text;
     } finally {
       setLoadingWhatsapp(null);
     }
   };
+
+  // Clear WhatsApp cache when date changes to force regeneration - CRITICAL FOR SAFETY
+  useEffect(() => {
+    const dateStr = moment(currentDate).format('DD/MM/YYYY');
+    console.log(`🚨 CRITICAL: Date changed to ${dateStr} - FORCE CLEARING WhatsApp cache for safety!`);
+    console.log(`🚨 Cache size before clear: ${whatsappTextCache.size}`);
+    setWhatsappTextCache(new Map());
+    console.log(`🚨 Cache cleared - new size: 0`);
+  }, [currentDate]);
 
   useEffect(() => {
     let mounted = true;
@@ -1290,7 +1463,430 @@ const Calendario = () => {
     }
   };
 
+  const fetchEvents = async () => {
+    console.log('🚀 fetchEvents called - LOADING EVENTS FOR TIME SLOTS!');
+    setLoading(true);
+    try {
+      const applyEvents = async (stelEvents: StelEvent[]) => {
+        console.log('📅 Processing Events:', {
+          totalEvents: stelEvents.length
+        });
 
+        // Filter out deleted events
+        const validEvents = stelEvents.filter((event) => {
+          if (event.deleted) return false;
+          return true;
+        });
+
+        console.log('📅 Filtered Events:', {
+          total: stelEvents.length,
+          valid: validEvents.length
+        });
+
+        // Get all unique event-type-ids from events to fetch event types and extract TEC codes
+        const uniqueEventTypeIds = [...new Set(
+          validEvents
+            .map(e => e['event-type-id'])
+            .filter(id => id !== null && id !== undefined)
+        )];
+
+        console.log(`🔍 Found ${uniqueEventTypeIds.length} unique event types, fetching event types to get TEC codes...`);
+
+        // Fetch ALL event types at once to get TEC codes from their names
+        const eventTypeToTecMap = new Map<number, string>(); // eventTypeId -> TEC code
+        
+        try {
+          if (import.meta.env.DEV) {
+            // DEV: Fetch all event types via Vite proxy
+            const proxyUrl = `/api/stel/app/eventTypes?limit=500`;
+            
+            console.log(`📡 Fetching all event types...`);
+            
+            const response = await fetch(proxyUrl, {
+              headers: {
+                APIKEY: import.meta.env.VITE_STEL_API_KEY,
+              },
+            });
+
+            if (response.ok) {
+              const allEventTypes = (await response.json()) as StelEventType[];
+              console.log(`✅ Fetched ${allEventTypes.length} event types from API`);
+              
+              // Extract TEC codes from event type names and map by ID
+              allEventTypes.forEach((eventType) => {
+                if (uniqueEventTypeIds.includes(eventType.id) && eventType.name) {
+                  // Event type name contains "TEC095" or similar
+                  const techMatch = eventType.name.match(/TEC\s*(\d+)/i);
+                  if (techMatch) {
+                    const normalizedTech = `TEC${String(techMatch[1]).padStart(3, '0')}`;
+                    eventTypeToTecMap.set(eventType.id, normalizedTech);
+                    console.log(`✅ Mapped event type ${eventType.id} (${eventType.name}) to ${normalizedTech}`);
+                  } else {
+                    console.warn(`⚠️ Event type ${eventType.id} has no TEC in name: "${eventType.name}"`);
+                  }
+                }
+              });
+              
+              console.log(`✅ Mapped ${eventTypeToTecMap.size} event types to TEC codes`);
+            }
+          } else {
+            // PROD: For now, skip event types in PROD (can be added later with edge function)
+            console.warn(`⚠️ Event types not available in PROD mode yet`);
+          }
+        } catch (error) {
+          console.warn(`⚠️ Exception fetching event types:`, error);
+        }
+
+        // Map events to calendar events with TEC codes from event types
+        const calendarEvents: CalendarEvent[] = validEvents.map((event) => {
+          // Events have start-date and end-date fields: "2024-09-30T09:00:00+0000"
+          // ⚠️ CRITICAL: The STEL API sends dates with +0000 but they are ALREADY in local time (CET/CEST)
+          // We need to extract the time values and use them AS-IS without timezone conversion
+          // Example: "2024-09-30T09:00:00+0000" should display as 09:00, NOT 11:00
+          
+          // Parse start-date
+          const startDateStr = event['start-date']; // e.g., "2024-09-30T09:00:00+0000"
+          const [startDatePart, startTimePartWithTZ] = startDateStr.split('T');
+          const startTimePart = startTimePartWithTZ.split('+')[0].split('-')[0]; // Remove timezone
+          
+          const [startYear, startMonth, startDay] = startDatePart.split('-').map(Number);
+          const startTimeComponents = startTimePart.split(':');
+          const startHours = parseInt(startTimeComponents[0]);
+          const startMinutes = parseInt(startTimeComponents[1]);
+          const startSeconds = startTimeComponents[2] ? parseInt(startTimeComponents[2]) : 0;
+          
+          // Create a Date object with the LOCAL time values (no timezone conversion)
+          const startDate = new Date(startYear, startMonth - 1, startDay, startHours, startMinutes, startSeconds);
+          
+          // Parse end-date
+          const endDateStr = event['end-date']; // e.g., "2024-09-30T11:00:00+0000"
+          const [endDatePart, endTimePartWithTZ] = endDateStr.split('T');
+          const endTimePart = endTimePartWithTZ.split('+')[0].split('-')[0]; // Remove timezone
+          
+          const [endYear, endMonth, endDay] = endDatePart.split('-').map(Number);
+          const endTimeComponents = endTimePart.split(':');
+          const endHours = parseInt(endTimeComponents[0]);
+          const endMinutes = parseInt(endTimeComponents[1]);
+          const endSeconds = endTimeComponents[2] ? parseInt(endTimeComponents[2]) : 0;
+          
+          // Create a Date object with the LOCAL time values (no timezone conversion)
+          const endDate = new Date(endYear, endMonth - 1, endDay, endHours, endMinutes, endSeconds);
+          
+          // Get TEC code from event type
+          let technicianId = 'Sin Asignar';
+          
+          if (event['event-type-id'] && eventTypeToTecMap.has(event['event-type-id'])) {
+            technicianId = eventTypeToTecMap.get(event['event-type-id'])!;
+            console.log(`✅ Event ${event.id} assigned to ${technicianId} via event type ${event['event-type-id']}`);
+          } else {
+            console.warn(`⚠️ Event ${event.id} has no TEC code (event-type-id: ${event['event-type-id']})`);
+          }
+
+          const calendarEvent = {
+            id: event.id,
+            title: event.subject || event.description || `Event ${event.id}`,
+            start: startDate,
+            end: endDate,
+            resource: event,
+            technician: technicianId,
+          };
+          
+          return calendarEvent;
+        });
+        
+        // Create a map to group events by technician
+        const technicianMap = new Map<string, CalendarEvent[]>();
+        
+        // Collect all unique technicians
+        const allTechnicians = new Set<string>();
+        calendarEvents.forEach(event => {
+          if (event.technician) {
+            allTechnicians.add(event.technician);
+          }
+        });
+        
+        console.log('🔧 Detected Technicians:', {
+          totalTechnicians: allTechnicians.size,
+          technicians: Array.from(allTechnicians).sort()
+        });
+        
+        // Initialize all technicians (even if they have no events today)
+        allTechnicians.forEach(techId => {
+          technicianMap.set(techId, []);
+        });
+        
+        // Add a "Sin Asignar" category for events without technician
+        technicianMap.set('Sin Asignar', []);
+        
+        // Add events to their respective technicians
+        calendarEvents.forEach(event => {
+          const tech = event.technician || 'Sin Asignar';
+          if (technicianMap.has(tech)) {
+            technicianMap.get(tech)!.push(event);
+          } else {
+            technicianMap.set(tech, [event]);
+          }
+        });
+
+        // Create technician schedules with colors
+        const schedules: TechnicianSchedule[] = Array.from(technicianMap.entries())
+          .map(([name, events]) => ({
+            name,
+            events,
+            color: getColorForCalendar(name)
+          }))
+          .sort((a, b) => {
+            // Sort "Sin Asignar" last
+            if (a.name === 'Sin Asignar') return 1;
+            if (b.name === 'Sin Asignar') return -1;
+            // Sort technicians numerically (TEC080, TEC087, TEC090, etc.)
+            const aNum = parseInt(a.name.replace('TEC', '')) || 0;
+            const bNum = parseInt(b.name.replace('TEC', '')) || 0;
+            return aNum - bNum;
+          });
+        
+        // Find the earliest event date to help user navigate
+        if (calendarEvents.length > 0) {
+          const earliestEvent = calendarEvents.reduce((min, event) => 
+            event.start < min.start ? event : min
+          );
+          console.log('📅 Earliest Event Date:', moment(earliestEvent.start).format('YYYY-MM-DD'));
+        }
+
+        setEvents(calendarEvents);
+        setTechnicianSchedules(schedules);
+
+        console.log('✅ Final Schedules:', {
+          totalSchedules: schedules.length,
+          schedules: schedules.map(s => ({
+            name: s.name,
+            totalEvents: s.events.length,
+            color: s.color
+          }))
+        });
+
+        // Show date range of loaded events
+        if (calendarEvents.length > 0) {
+          const dates = calendarEvents.map(e => moment(e.start).format('YYYY-MM-DD')).sort();
+          const earliestDate = dates[0];
+          const latestDate = dates[dates.length - 1];
+          
+          console.log('📅 Events Date Range:', {
+            earliest: earliestDate,
+            latest: latestDate,
+            total: calendarEvents.length
+          });
+          
+          toast({
+            title: 'Eventos Cargados',
+            description: `${calendarEvents.length} eventos de ${schedules.length} técnicos (${earliestDate} a ${latestDate})`,
+          });
+        } else {
+          toast({
+            title: 'Sin Eventos',
+            description: 'No se encontraron eventos en la respuesta de la API',
+            variant: 'destructive',
+          });
+        }
+      };
+
+      if (import.meta.env.DEV) {
+        console.log('✅ Running in DEV mode, using Vite proxy');
+        try {
+          // Calculate exact date range: 1 month ago and 1 month ahead
+          const oneMonthAgo = new Date();
+          oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+          const oneMonthAhead = new Date();
+          oneMonthAhead.setMonth(oneMonthAhead.getMonth() + 1);
+          
+          const startDate = oneMonthAgo.toISOString().replace(/\.\d{3}Z$/, '+0000');
+          const endDate = oneMonthAhead.toISOString().replace(/\.\d{3}Z$/, '+0000');
+          
+          const oneMonthAgoDate = new Date();
+          oneMonthAgoDate.setMonth(oneMonthAgoDate.getMonth() - 1);
+          oneMonthAgoDate.setHours(0, 0, 0, 0); // Start of day
+          const oneMonthAheadDate = new Date();
+          oneMonthAheadDate.setMonth(oneMonthAheadDate.getMonth() + 1);
+          oneMonthAheadDate.setHours(23, 59, 59, 999); // End of day
+          
+          console.log(`📅 Fetching events AND incidents in parallel (from ${startDate} to ${endDate})...`);
+          
+          const limit = 500; // Maximum supported
+          
+          // Fetch events and incidents in parallel
+          const eventsUrl = `/api/stel/app/events?limit=${limit}&start-date=${encodeURIComponent(startDate)}&end-date=${encodeURIComponent(endDate)}`;
+          const utcLastModificationDate = oneMonthAgo.toISOString().replace(/\.\d{3}Z$/, '+0000');
+          const incidentsUrl = `/api/stel/app/incidents?limit=${limit}&utc-last-modification-date=${encodeURIComponent(utcLastModificationDate)}`;
+          
+          console.log(`📡 Fetching events and incidents in parallel...`);
+          
+          const [eventsResponse, incidentsResponse] = await Promise.all([
+            fetch(eventsUrl, {
+              headers: {
+                APIKEY: import.meta.env.VITE_STEL_API_KEY,
+              },
+            }),
+            fetch(incidentsUrl, {
+              headers: {
+                APIKEY: import.meta.env.VITE_STEL_API_KEY,
+              },
+            })
+          ]);
+
+          if (!eventsResponse.ok) {
+            throw new Error(`Events HTTP ${eventsResponse.status}: ${eventsResponse.statusText}`);
+          }
+
+          if (!incidentsResponse.ok) {
+            throw new Error(`Incidents HTTP ${incidentsResponse.status}: ${incidentsResponse.statusText}`);
+          }
+
+          const allEvents = (await eventsResponse.json()) as StelEvent[];
+          const allIncidentsData = (await incidentsResponse.json()) as StelIncident[];
+          
+          console.log(`✅ Total events fetched: ${allEvents.length}`);
+          console.log(`✅ Total incidents fetched: ${allIncidentsData.length}`);
+          
+          // Filter events: not deleted AND event date between EXACTLY 1 month ago and 1 month ahead
+          const validEvents = allEvents.filter((event) => {
+            // Exclude deleted events
+            if (event.deleted) return false;
+            
+            // Exclude events without start-date
+            if (!event['start-date']) return false;
+            
+            // Filter by exact date range (1 month ago to 1 month ahead)
+            const eventDate = new Date(event['start-date']);
+            return eventDate >= oneMonthAgoDate && eventDate <= oneMonthAheadDate;
+          });
+          
+          // Filter incidents: not deleted AND incident date between EXACTLY 1 month ago and 1 month ahead
+          const validIncidents = allIncidentsData.filter((incident) => {
+            if (incident.deleted) return false;
+            if (!incident.date) return false;
+            // Exclude I-PRT incidents (reference starts with "I-PRT")
+            if (incident.reference && incident.reference.startsWith('I-PRT')) {
+              return false;
+            }
+            // Parse incident date without timezone conversion (same as events)
+            const dateStr = incident.date; // e.g., "2024-09-30T09:00:00+0000"
+            const [datePart, timePartWithTZ] = dateStr.split('T');
+            const timePart = timePartWithTZ.split('+')[0].split('-')[0]; // Remove timezone
+            
+            const [year, month, day] = datePart.split('-').map(Number);
+            const timeComponents = timePart.split(':');
+            const hours = parseInt(timeComponents[0]);
+            const minutes = parseInt(timeComponents[1]);
+            const seconds = timeComponents[2] ? parseInt(timeComponents[2]) : 0;
+            
+            // Create a Date object with the LOCAL time values (no timezone conversion)
+            const incidentDate = new Date(year, month - 1, day, hours, minutes, seconds);
+            return incidentDate >= oneMonthAgoDate && incidentDate <= oneMonthAheadDate;
+          });
+          
+          console.log(`✅ Valid events (not deleted, -1 month to +1 month): ${validEvents.length}`);
+          console.log(`✅ Valid incidents (not deleted, -1 month to +1 month): ${validIncidents.length}`);
+          console.log(`📅 Date range filter: ${moment(oneMonthAgoDate).format('YYYY-MM-DD')} to ${moment(oneMonthAheadDate).format('YYYY-MM-DD')}`);
+
+          // Store incidents for WhatsApp (ruta antiga)
+          setAllIncidents(validIncidents);
+          
+          // Create assignee-id to TEC code map for WhatsApp
+          const uniqueAssigneeIds = [...new Set(
+            validIncidents
+              .map(i => i['assignee-id'])
+              .filter(id => id)
+          )];
+          
+          console.log(`🔍 Creating assignee-to-TEC map for ${uniqueAssigneeIds.length} assignees...`);
+          
+          const assigneeMap = new Map<number, string>(); // assignee-id -> TEC code
+          
+          for (const employeeId of uniqueAssigneeIds) {
+            try {
+              let employee = null;
+              
+              if (import.meta.env.DEV) {
+                // DEV: use Vite proxy
+                const employeeUrl = `/api/stel/app/employees/${employeeId}`;
+                const response = await fetch(employeeUrl, {
+                  headers: {
+                    APIKEY: import.meta.env.VITE_STEL_API_KEY,
+                  },
+                });
+                
+                if (response.ok) {
+                  const employeeData = await response.json();
+                  employee = Array.isArray(employeeData) ? employeeData[0] : employeeData;
+                } else if (response.status === 404) {
+                  console.warn(`⚠️ Employee ${employeeId} not found (404)`);
+                  continue;
+                }
+              } else {
+                // PROD: use Supabase Edge Function
+                const { data, error } = await supabase.functions.invoke('stel-employee', {
+                  body: { employeeId: employeeId.toString() },
+                });
+                
+                if (error) {
+                  console.warn(`⚠️ Error fetching employee ${employeeId}:`, error);
+                  continue;
+                }
+                
+                employee = Array.isArray(data) ? data[0] : data;
+              }
+              
+              if (employee) {
+                // Employee.name contains "TEC095 " or similar
+                const techMatch = employee?.name?.match(/TEC\s*(\d+)/i);
+                if (techMatch) {
+                  const normalizedTech = `TEC${String(techMatch[1]).padStart(3, '0')}`;
+                  assigneeMap.set(employeeId, normalizedTech);
+                  console.log(`✅ Mapped assignee ${employeeId} to ${normalizedTech}`);
+                } else {
+                  console.warn(`⚠️ Employee ${employeeId} has no TEC in name: "${employee?.name}"`);
+                }
+              }
+            } catch (error) {
+              console.warn(`⚠️ Exception fetching employee ${employeeId}:`, error);
+            }
+          }
+          
+          setAssigneeToTecMap(assigneeMap);
+          console.log(`✅ Created assignee-to-TEC map with ${assigneeMap.size} entries`);
+          
+          // Use events for UI display
+          await applyEvents(validEvents);
+          return;
+        } catch (viteError) {
+          console.warn('❌ Vite proxy request failed:', viteError);
+          toast({
+            title: 'Error',
+            description: 'No se pudieron cargar los eventos',
+            variant: 'destructive',
+          });
+        }
+      } else {
+        // PROD: For now, show error (edge functions need to be created)
+        toast({
+          title: 'Error',
+          description: 'Modo PROD: Las funciones Edge para events aún no están disponibles',
+          variant: 'destructive',
+        });
+      }
+    } catch (error) {
+      console.error('Error fetching events:', error);
+      const message = error instanceof Error ? error.message : String(error);
+      toast({
+        title: 'Error',
+        description: message.includes('STEL API key') ? t('calendar.apiKeyError') : t('calendar.loadError'),
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+      console.log('🏁 fetchEvents completed');
+    }
+  };
 
   if (!isAuthenticated) return null;
 
@@ -1304,22 +1900,22 @@ const Calendario = () => {
           </div>
           <div>
             <h1 className="text-3xl font-bold tracking-tight bg-gradient-primary bg-clip-text text-transparent">
-              Calendario de Incidencias
+              Calendario Eventos
             </h1>
             <p className="text-muted-foreground">
-              Gestión de incidencias de STEL Order
+              Gestión de eventos de STEL Order
             </p>
           </div>
         </div>
 
         <Button
-          onClick={fetchIncidents}
+          onClick={fetchEvents}
           disabled={loading}
           className="bg-gradient-to-r from-primary to-primary-hover hover:shadow-lg transition-all duration-300 gap-2"
           size="lg"
         >
           <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-          {loading ? 'Cargando...' : '🔧 Cargar Incidencias (v2.0)'}
+          {loading ? 'Cargando...' : '📅 Cargar Eventos (Time Slots)'}
         </Button>
       </div>
 
@@ -1437,13 +2033,30 @@ const Calendario = () => {
                     return eventDate === selectedDate;
                   });
                   
+                  // Check if there are incidents available for this technician and date (for WhatsApp)
+                  const targetDateStr = moment(currentDate).format('YYYY-MM-DD');
+                  const hasIncidentsForWhatsApp = allIncidents.some((incident) => {
+                    if (!incident.date || !incident['assignee-id']) return false;
+                    if (incident.reference && incident.reference.startsWith('I-PRT')) return false;
+                    
+                    const dateStr = incident.date;
+                    const [datePart] = dateStr.split('T');
+                    const incidentDateStr = datePart;
+                    
+                    if (incidentDateStr !== targetDateStr) return false;
+                    
+                    const incidentTecCode = assigneeToTecMap.get(incident['assignee-id']);
+                    return incidentTecCode === schedule.name;
+                  });
+                  
                   return {
                     ...schedule,
                     todayEventsCount: todayEvents.length,
-                    todayEvents: todayEvents
+                    todayEvents: todayEvents,
+                    hasIncidentsForWhatsApp: hasIncidentsForWhatsApp
                   };
                 })
-                .filter(schedule => schedule.todayEventsCount > 0);
+                .filter(schedule => schedule.todayEventsCount > 0 || schedule.hasIncidentsForWhatsApp);
 
               if (schedulesWithEvents.length === 0) {
                 return (
@@ -1506,9 +2119,10 @@ const Calendario = () => {
                           <div className="flex items-center gap-1">
                             <Badge variant="outline" className="text-xs">{schedule.todayEventsCount}</Badge>
                             
-                            {/* WhatsApp Button */}
-                            {schedule.todayEventsCount > 0 && (
-                              <WhatsAppDialog 
+                            {/* WhatsApp Button - Show if there are events OR incidents for WhatsApp */}
+                            {(schedule.todayEventsCount > 0 || schedule.hasIncidentsForWhatsApp) && (
+                              <WhatsAppDialog
+                                key={`${schedule.name}-${moment(currentDate).format('YYYY-MM-DD')}`}
                                 schedule={schedule}
                                 currentDate={currentDate}
                                 onGenerateText={handleGenerateWhatsAppText}
@@ -1533,7 +2147,7 @@ const Calendario = () => {
                             views={['day']}
                             step={30}
                             timeslots={2}
-                            min={new Date(2025, 0, 1, 6, 0, 0)}
+                            min={new Date(2025, 0, 1, 8, 0, 0)}
                             max={new Date(2025, 0, 1, 22, 0, 0)}
                             showMultiDayTimes
                             toolbar={false}
