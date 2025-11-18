@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar as UICalendar } from "@/components/ui/calendar";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Calendar, momentLocalizer } from 'react-big-calendar';
 import moment from 'moment';
 import 'moment/locale/es'; // Import Spanish locale
@@ -1163,9 +1163,8 @@ const Calendario = () => {
   useEffect(() => {
     const dateStr = moment(currentDate).format('DD/MM/YYYY');
     console.log(`🚨 CRITICAL: Date changed to ${dateStr} - FORCE CLEARING WhatsApp cache for safety!`);
-    console.log(`🚨 Cache size before clear: ${whatsappTextCache.size}`);
     setWhatsappTextCache(new Map());
-    console.log(`🚨 Cache cleared - new size: 0`);
+    console.log(`🚨 Cache cleared successfully`);
   }, [currentDate]);
 
   useEffect(() => {
