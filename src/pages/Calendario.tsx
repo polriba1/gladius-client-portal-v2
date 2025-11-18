@@ -2404,7 +2404,7 @@ const Calendario = () => {
                                   </div>
                                   <div className="font-semibold text-[11px]">{event.title}</div>
                                   <div className="text-[10px] opacity-90 mt-0.5">
-                                    {(event.resource as any)?.['full-reference'] || (event.resource as any)?.reference || 'Sin referencia'}
+                                    {(event.resource as Record<string, string | undefined>)?.['full-reference'] || (event.resource as Record<string, string | undefined>)?.reference || 'Sin referencia'}
                                   </div>
                                 </div>
                               ),
