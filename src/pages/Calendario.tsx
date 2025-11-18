@@ -2048,7 +2048,7 @@ const Calendario = () => {
               if (eventTypesError) {
                 console.warn('⚠️ Could not fetch event types:', eventTypesError);
               } else {
-                const eventTypes = (eventTypesData ?? []) as any[];
+                const eventTypes = (eventTypesData ?? []) as Array<{ id: number; name: string }>;
                 console.log(`✅ Fetched ${eventTypes.length} event types`);
 
                 eventTypes.forEach(eventType => {
