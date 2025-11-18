@@ -1989,12 +1989,116 @@ const Calendario = () => {
           });
         }
       } else {
-        // PROD: For now, show error (edge functions need to be created)
-        toast({
-          title: 'Error',
-          description: 'Modo PROD: Las funciones Edge para events aún no están disponibles',
-          variant: 'destructive',
-        });
+        // PROD: Use Supabase Edge Function
+        console.log('🚀 PROD MODE: Using stel-events Edge Function');
+
+        try {
+          // Calculate date range: 1 month back and 1 month ahead
+          const now = new Date();
+          const startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+          const endDate = new Date(now.getFullYear(), now.getMonth() + 2, 0);
+
+          const startDateStr = startDate.toISOString().replace(/\.\d{3}Z$/, '+0000');
+          const endDateStr = endDate.toISOString().replace(/\.\d{3}Z$/, '+0000');
+
+          console.log(`📅 Fetching events from ${startDateStr} to ${endDateStr}`);
+
+          const { data, error } = await supabase.functions.invoke('stel-events', {
+            body: {
+              limit: '500',
+              startDate: startDateStr,
+              endDate: endDateStr,
+            },
+          });
+
+          if (error) {
+            console.error('❌ Edge function error (stel-events):', error);
+            throw error;
+          }
+
+          console.log('✅ Events received from Edge Function:', data);
+
+          const allEvents = (data ?? []) as StelEvent[];
+          console.log(`✅ Total events fetched: ${allEvents.length}`);
+
+          // Filter out deleted events
+          const validEvents = allEvents.filter(event => !event.deleted);
+
+          console.log(`📅 Filtered events: ${validEvents.length}/${allEvents.length} (not deleted)`);
+
+          // Process events (extract TEC codes from event types, etc.)
+          // This follows the same logic as DEV mode
+          const uniqueEventTypeIds = [...new Set(
+            validEvents
+              .map(e => e['event-type-id'])
+              .filter(id => id !== null && id !== undefined)
+          )];
+
+          console.log(`🔍 Found ${uniqueEventTypeIds.length} unique event types, fetching event types...`);
+
+          // Fetch event types if we have any
+          const eventTypeToTecMap = new Map<number, string>();
+
+          if (uniqueEventTypeIds.length > 0) {
+            try {
+              const { data: eventTypesData, error: eventTypesError } = await supabase.functions.invoke('stel-event-types', {
+                body: { ids: uniqueEventTypeIds },
+              });
+
+              if (eventTypesError) {
+                console.warn('⚠️ Could not fetch event types:', eventTypesError);
+              } else {
+                const eventTypes = (eventTypesData ?? []) as any[];
+                console.log(`✅ Fetched ${eventTypes.length} event types`);
+
+                eventTypes.forEach(eventType => {
+                  const techMatch = eventType.name.match(/TEC\s*(\d+)/i);
+                  if (techMatch) {
+                    const normalizedTech = `TEC${String(techMatch[1]).padStart(3, '0')}`;
+                    eventTypeToTecMap.set(eventType.id, normalizedTech);
+                    console.log(`✅ Mapped event type ${eventType.id} (${eventType.name}) to ${normalizedTech}`);
+                  } else {
+                    console.warn(`⚠️ Event type ${eventType.id} has no TEC in name: "${eventType.name}"`);
+                  }
+                });
+
+                console.log(`✅ Mapped ${eventTypeToTecMap.size} event types to TEC codes`);
+              }
+            } catch (eventTypesException) {
+              console.warn('⚠️ Exception fetching event types:', eventTypesException);
+            }
+          }
+
+          // Create assignee-to-TEC map from event assignments
+          const assigneeMap = new Map<number, string>();
+
+          for (const event of validEvents) {
+            const employeeId = event['assigned-to-id'];
+            if (employeeId && event['event-type-id'] && eventTypeToTecMap.has(event['event-type-id'])) {
+              const tecCode = eventTypeToTecMap.get(event['event-type-id'])!;
+              const numericId = typeof employeeId === 'string' ? parseInt(employeeId, 10) : employeeId;
+              if (!isNaN(numericId)) {
+                assigneeMap.set(numericId, tecCode);
+                console.log(`✅ Mapped event assignee ${employeeId} to ${tecCode} via event type`);
+              }
+            }
+          }
+
+          setAssigneeToTecMap(assigneeMap);
+          console.log(`✅ Created assignee-to-TEC map with ${assigneeMap.size} entries`);
+
+          // Use events for UI display
+          await applyEvents(validEvents);
+          return;
+
+        } catch (edgeFunctionError) {
+          console.error('❌ Edge Function request failed:', edgeFunctionError);
+          toast({
+            title: 'Error',
+            description: 'No se pudieron cargar los eventos',
+            variant: 'destructive',
+          });
+        }
       }
     } catch (error) {
       console.error('Error fetching events:', error);
