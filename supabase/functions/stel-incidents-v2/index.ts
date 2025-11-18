@@ -1,6 +1,6 @@
-﻿import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 
-console.log("STEL Incidents function loaded")
+console.log("STEL Incidents V2 function loaded")
 
 serve(async (req: Request) => {
   const corsHeaders = {
@@ -16,31 +16,38 @@ serve(async (req: Request) => {
 
   try {
     const stelApiKey = Deno.env.get("STEL_API_KEY")
-    if (!stelApiKey) throw new Error("STEL_API_KEY not set")
+    if (!stelApiKey) {
+      console.error("STEL_API_KEY not set")
+      throw new Error("STEL_API_KEY not set")
+    }
 
     let limit = "500"
-    let daysBack = 30
+    let utcLastModificationDate = ""
 
     if (req.method === "POST") {
       try {
         const body = await req.json()
         limit = body.limit || "500"
-        daysBack = body.daysBack || 30
-        console.log(`Request body: limit=${limit}, daysBack=${daysBack}`)
+        utcLastModificationDate = body.utcLastModificationDate || ""
+        console.log(`Request body: limit=${limit}, utcLastModificationDate=${utcLastModificationDate}`)
       } catch (_e) {
         console.log("No JSON body received, using defaults")
       }
     }
 
-    // Calculate the date for filtering (1 month ago)
-    const oneMonthAgo = new Date()
-    oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1)
-    const utcLastModificationDate = oneMonthAgo.toISOString().replace(/\.\d{3}Z$/, '+0000')
-    
+    // If no date provided, use 1 month ago
+    if (!utcLastModificationDate) {
+      const oneMonthAgo = new Date()
+      oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1)
+      utcLastModificationDate = oneMonthAgo.toISOString().replace(/\.\d{3}Z$/, '+0000')
+    }
+
     console.log(`Fetching incidents with limit=${limit}, utc-last-modification-date=${utcLastModificationDate}`)
 
     const apiUrl = `https://app.stelorder.com/app/incidents?limit=${limit}&utc-last-modification-date=${encodeURIComponent(utcLastModificationDate)}`
-    
+
+    console.log(`Calling STEL API: ${apiUrl}`)
+
     const response = await fetch(apiUrl, {
       headers: { APIKEY: stelApiKey },
     })
@@ -51,37 +58,25 @@ serve(async (req: Request) => {
       throw new Error(`API error: ${response.status}`)
     }
 
-    const allIncidents = await response.json()
-    console.log(`Total incidents fetched: ${allIncidents.length}`)
-    
-    // Filter: not deleted AND incident date between 1 month ago and 1 month ahead
-    const oneMonthAgoDate = new Date()
-    oneMonthAgoDate.setMonth(oneMonthAgoDate.getMonth() - 1)
-    const oneMonthAheadDate = new Date()
-    oneMonthAheadDate.setMonth(oneMonthAheadDate.getMonth() + 1)
-    
-    interface Incident {
-      deleted?: boolean
-      date?: string
-      [key: string]: unknown
+    const incidents = await response.json()
+    console.log(`Total incidents fetched: ${Array.isArray(incidents) ? incidents.length : 'NOT AN ARRAY'}`)
+
+    if (!Array.isArray(incidents)) {
+      console.error(`ERROR: Response is not an array, it's a ${typeof incidents}`)
+      return new Response(JSON.stringify([]), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      })
     }
-    
-    const filtered = allIncidents.filter((inc: Incident) => {
-      if (inc.deleted) return false
-      if (!inc.date) return false
-      const incidentDate = new Date(inc.date)
-      return incidentDate >= oneMonthAgoDate && incidentDate <= oneMonthAheadDate
-    })
 
-    console.log(`Filtered ${filtered.length}/${allIncidents.length} incidents (not deleted, -1 month to +1 month)`)
-
-    return new Response(JSON.stringify(filtered), {
+    return new Response(JSON.stringify(incidents), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     })
   } catch (error) {
+    console.error("Error in stel-incidents-v2:", error)
     return new Response(
       JSON.stringify({ error: error instanceof Error ? error.message : "Error" }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     )
   }
 })
+

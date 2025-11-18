@@ -576,6 +576,7 @@ const Calendario = () => {
       console.log(`🔍 Fetching client info for ID: ${clientId}`);
       
       if (import.meta.env.DEV) {
+        console.log('✅ DEV MODE: Using Vite proxy');
         // DEV: use Vite proxy
         // Try 1: Regular clients endpoint - GET /app/clients/{ID}
         let clientUrl = `/api/stel/app/clients/${clientId}`;
@@ -649,23 +650,14 @@ const Calendario = () => {
         return client;
       } else {
         // PROD: use Supabase Edge Function
-        // stel-client already handles fallback to potentialClients internally
-        console.log(`📡 [PROD] Invoking stel-client Edge Function for client ${clientId}`);
-        const { data, error } = await supabase.functions.invoke('stel-client', {
+        console.log('🚀 PROD MODE: Using stel-client-v2 Edge Function');
+        const { data, error } = await supabase.functions.invoke('stel-client-v2', {
           body: { clientId },
         });
         
         if (error) {
           console.error(`❌ Edge function error:`, error);
           throw error;
-        }
-        
-        console.log(`✅ Client data received from Edge Function:`, data);
-        
-        // Check if Edge Function returned an error response (e.g., { error: "...", clientId: "..." })
-        if (data && data.error) {
-          console.error(`❌ Edge function returned error:`, data.error);
-          throw new Error(data.error);
         }
         
         const client = Array.isArray(data) ? data[0] : data;
@@ -689,6 +681,7 @@ const Calendario = () => {
       console.log(`🔍 Fetching employee info for ID: ${employeeId}`);
       
       if (import.meta.env.DEV) {
+        console.log('✅ DEV MODE: Using Vite proxy');
         // DEV: use Vite proxy
         const response = await fetch(`/api/stel/app/employees/${employeeId}`, {
           headers: {
@@ -714,21 +707,14 @@ const Calendario = () => {
         return employee;
       } else {
         // PROD: use Supabase Edge Function
-        const { data, error } = await supabase.functions.invoke('stel-employee', {
+        console.log('🚀 PROD MODE: Using stel-employee-v2 Edge Function');
+        const { data, error } = await supabase.functions.invoke('stel-employee-v2', {
           body: { employeeId },
         });
         
         if (error) {
           console.error(`❌ Edge function error:`, error);
           throw error;
-        }
-        
-        console.log(`✅ Employee data received from Edge Function:`, data);
-        
-        // Check if Edge Function returned an error response
-        if (data && data.error) {
-          console.error(`❌ Edge function returned error:`, data.error);
-          throw new Error(data.error);
         }
         
         const employee = Array.isArray(data) ? data[0] : data;
@@ -752,6 +738,7 @@ const Calendario = () => {
       console.log(`🏠 Fetching address info for ID: ${addressId}`);
       
       if (import.meta.env.DEV) {
+        console.log('✅ DEV MODE: Using Vite proxy');
         // DEV: use Vite proxy
         const response = await fetch(`/api/stel/app/addresses/${addressId}`, {
           headers: {
@@ -777,21 +764,14 @@ const Calendario = () => {
         return address;
       } else {
         // PROD: use Supabase Edge Function
-        const { data, error } = await supabase.functions.invoke('stel-address', {
+        console.log('🚀 PROD MODE: Using stel-address-v2 Edge Function');
+        const { data, error } = await supabase.functions.invoke('stel-address-v2', {
           body: { addressId },
         });
         
         if (error) {
           console.error(`❌ Edge function error:`, error);
           throw error;
-        }
-        
-        console.log(`✅ Address data received from Edge Function:`, data);
-        
-        // Check if Edge Function returned an error response
-        if (data && data.error) {
-          console.error(`❌ Edge function returned error:`, data.error);
-          throw new Error(data.error);
         }
         
         const address = Array.isArray(data) ? data[0] : data;
@@ -1265,34 +1245,20 @@ const Calendario = () => {
           try {
             let employee = null;
             
-            if (import.meta.env.DEV) {
-              // DEV: use Vite proxy
-              const employeeUrl = `/api/stel/app/employees/${employeeId}`;
-              const response = await fetch(employeeUrl, {
-                headers: {
-                  APIKEY: import.meta.env.VITE_STEL_API_KEY,
-                },
-              });
-              
-              if (response.ok) {
-                const employeeData = await response.json();
-                employee = Array.isArray(employeeData) ? employeeData[0] : employeeData;
-              } else if (response.status === 404) {
-                console.warn(`⚠️ Employee ${employeeId} not found (404)`);
-                continue;
-              }
-            } else {
-              // PROD: use Supabase Edge Function
-              const { data, error } = await supabase.functions.invoke('stel-employee', {
-                body: { employeeId: employeeId.toString() },
-              });
-              
-              if (error) {
-                console.warn(`⚠️ Error fetching employee ${employeeId}:`, error);
-                continue;
-              }
-              
-              employee = Array.isArray(data) ? data[0] : data;
+            // DEV: use Vite proxy
+            const employeeUrl = `/api/stel/app/employees/${employeeId}`;
+            const response = await fetch(employeeUrl, {
+              headers: {
+                APIKEY: import.meta.env.VITE_STEL_API_KEY,
+              },
+            });
+            
+            if (response.ok) {
+              const employeeData = await response.json();
+              employee = Array.isArray(employeeData) ? employeeData[0] : employeeData;
+            } else if (response.status === 404) {
+              console.warn(`⚠️ Employee ${employeeId} not found (404)`);
+              continue;
             }
             
             if (employee) {
@@ -1507,69 +1473,67 @@ const Calendario = () => {
           await applyIncidents(validIncidents);
           return;
         } catch (viteError) {
-          console.warn('❌ Vite proxy request failed, attempting Supabase Edge Function', viteError);
+          console.warn('❌ Vite proxy request failed:', viteError);
+          toast({
+            title: 'Error',
+            description: 'No se pudieron cargar las incidencias',
+            variant: 'destructive',
+          });
         }
-      }
-
-      console.log('⚠️ Not in DEV mode or Vite proxy failed, using Supabase Edge Function');
-      
-      // Fetch incidents from 1 month before and 1 month ahead (2 months total)
-      const daysBack = 30;
-      const daysAhead = 30;
-      const limit = 500;
-      
-      console.log(`📅 Fetching incidents from last ${daysBack} days and next ${daysAhead} days`);
-      
-      try {
-        console.log(`🔧 Supabase Edge Function Request: limit=${limit}, daysBack=${daysBack}`);
-
-        const { data, error } = await supabase.functions.invoke('stel-incidents', {
-          body: {
-            limit: limit.toString(),
-            daysBack: daysBack,
-          },
-        });
-
-        if (error) {
-          throw error;
+      } else {
+        // PROD: Use Supabase Edge Function
+        console.log('🚀 PROD MODE: Using stel-incidents-v2 Edge Function');
+        
+        try {
+          const oneMonthAgo = new Date();
+          oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+          const utcLastModificationDate = oneMonthAgo.toISOString().replace(/\.\d{3}Z$/, '+0000');
+          
+          console.log(`📅 Fetching incidents modified after: ${utcLastModificationDate}`);
+          
+          const { data, error } = await supabase.functions.invoke('stel-incidents-v2', {
+            body: {
+              limit: '500',
+              utcLastModificationDate: utcLastModificationDate,
+            },
+          });
+          
+          if (error) {
+            console.error('❌ Edge function error (stel-incidents-v2):', error);
+            throw error;
+          }
+          
+          const allIncidents = (data ?? []) as StelIncident[];
+          console.log(`✅ Total incidents fetched: ${allIncidents.length}`);
+          
+          // Filter: not deleted AND incident date between 1 month ago and 1 month ahead
+          const oneMonthAgoDate = new Date();
+          oneMonthAgoDate.setMonth(oneMonthAgoDate.getMonth() - 1);
+          const oneMonthAheadDate = new Date();
+          oneMonthAheadDate.setMonth(oneMonthAheadDate.getMonth() + 1);
+          
+          const validIncidents = allIncidents.filter((incident) => {
+            if (incident.deleted) return false;
+            if (!incident.date) return false;
+            if (incident.reference && incident.reference.startsWith('I-PRT')) {
+              return false;
+            }
+            const incidentDate = new Date(incident.date);
+            return incidentDate >= oneMonthAgoDate && incidentDate <= oneMonthAheadDate;
+          });
+          
+          console.log(`✅ Valid incidents (not deleted, -1 month to +1 month): ${validIncidents.length}`);
+          
+          await applyIncidents(validIncidents);
+          return;
+        } catch (edgeFunctionError) {
+          console.error('❌ Edge Function request failed:', edgeFunctionError);
+          toast({
+            title: 'Error',
+            description: 'No se pudieron cargar las incidencias',
+            variant: 'destructive',
+          });
         }
-
-        const allIncidents = (data ?? []) as StelIncident[];
-        console.log(`✅ Total incidents fetched: ${allIncidents.length}`);
-        
-        // Filter: not deleted AND incident date between 1 month ago and 1 month ahead
-        const oneMonthAgoDate = new Date();
-        oneMonthAgoDate.setMonth(oneMonthAgoDate.getMonth() - 1);
-        const oneMonthAheadDate = new Date();
-        oneMonthAheadDate.setMonth(oneMonthAheadDate.getMonth() + 1);
-        
-        const validIncidents = allIncidents.filter((incident) => {
-          if (incident.deleted) return false;
-          if (!incident.date) return false;
-          const incidentDate = new Date(incident.date);
-          return incidentDate >= oneMonthAgoDate && incidentDate <= oneMonthAheadDate;
-        });
-        
-        console.log(`✅ Valid incidents (not deleted, -1 month to +1 month): ${validIncidents.length}`);
-        console.log(`📅 Date range filter: ${moment(oneMonthAgoDate).format('YYYY-MM-DD')} to ${moment(oneMonthAheadDate).format('YYYY-MM-DD')}`);
-        
-        // Get date range
-        if (validIncidents.length > 0) {
-          const dates = validIncidents
-            .map(i => i.date)
-            .filter(d => d)
-            .sort();
-          console.log(`📅 Actual incidents date range: ${dates[0]} to ${dates[dates.length - 1]}`);
-        }
-
-        await applyIncidents(validIncidents);
-      } catch (edgeFunctionError) {
-        console.error('❌ Edge Function request failed:', edgeFunctionError);
-        toast({
-          title: 'Error',
-          description: 'No se pudieron cargar las incidencias',
-          variant: 'destructive',
-        });
       }
     } catch (error) {
       console.error('Error fetching incidents:', error);
@@ -1652,9 +1616,35 @@ const Calendario = () => {
               console.log(`✅ Mapped ${eventTypeToTecMap.size} event types to TEC codes`);
             }
           } else {
-            // PROD: Event types are loaded later in the process via the second call
-            // This avoids the problematic "load all" approach that doesn't work with Edge Functions
-            console.log('ℹ️ PROD: Event types will be loaded per event batch (optimized approach)');
+            // PROD: Fetch all event types via Edge Function
+            console.log('🚀 PROD MODE: Using stel-event-types-v2 Edge Function');
+            
+            const { data: eventTypesData, error: eventTypesError } = await supabase.functions.invoke('stel-event-types-v2', {
+              body: { limit: '500' },
+            });
+            
+            if (eventTypesError) {
+              console.warn('⚠️ Could not fetch event types:', eventTypesError);
+            } else if (eventTypesData && Array.isArray(eventTypesData)) {
+              const allEventTypes = eventTypesData as StelEventType[];
+              console.log(`✅ Fetched ${allEventTypes.length} event types from Edge Function`);
+              
+              // Extract TEC codes from event type names and map by ID
+              allEventTypes.forEach((eventType) => {
+                if (uniqueEventTypeIds.includes(eventType.id) && eventType.name) {
+                  const techMatch = eventType.name.match(/TEC\s*(\d+)/i);
+                  if (techMatch) {
+                    const normalizedTech = `TEC${String(techMatch[1]).padStart(3, '0')}`;
+                    eventTypeToTecMap.set(eventType.id, normalizedTech);
+                    console.log(`✅ Mapped event type ${eventType.id} (${eventType.name}) to ${normalizedTech}`);
+                  } else {
+                    console.warn(`⚠️ Event type ${eventType.id} has no TEC in name: "${eventType.name}"`);
+                  }
+                }
+              });
+              
+              console.log(`✅ Mapped ${eventTypeToTecMap.size} event types to TEC codes`);
+            }
           }
         } catch (error) {
           console.warn(`⚠️ Exception fetching event types:`, error);
@@ -1929,34 +1919,20 @@ const Calendario = () => {
             try {
               let employee = null;
               
-              if (import.meta.env.DEV) {
-                // DEV: use Vite proxy
-                const employeeUrl = `/api/stel/app/employees/${employeeId}`;
-                const response = await fetch(employeeUrl, {
-                  headers: {
-                    APIKEY: import.meta.env.VITE_STEL_API_KEY,
-                  },
-                });
-                
-                if (response.ok) {
-                  const employeeData = await response.json();
-                  employee = Array.isArray(employeeData) ? employeeData[0] : employeeData;
-                } else if (response.status === 404) {
-                  console.warn(`⚠️ Employee ${employeeId} not found (404)`);
-                  continue;
-                }
-              } else {
-                // PROD: use Supabase Edge Function
-                const { data, error } = await supabase.functions.invoke('stel-employee', {
-                  body: { employeeId: employeeId.toString() },
-                });
-                
-                if (error) {
-                  console.warn(`⚠️ Error fetching employee ${employeeId}:`, error);
-                  continue;
-                }
-                
-                employee = Array.isArray(data) ? data[0] : data;
+              // DEV: use Vite proxy
+              const employeeUrl = `/api/stel/app/employees/${employeeId}`;
+              const response = await fetch(employeeUrl, {
+                headers: {
+                  APIKEY: import.meta.env.VITE_STEL_API_KEY,
+                },
+              });
+              
+              if (response.ok) {
+                const employeeData = await response.json();
+                employee = Array.isArray(employeeData) ? employeeData[0] : employeeData;
+              } else if (response.status === 404) {
+                console.warn(`⚠️ Employee ${employeeId} not found (404)`);
+                continue;
               }
               
               if (employee) {
@@ -1990,178 +1966,116 @@ const Calendario = () => {
           });
         }
       } else {
-        // PROD: Use Supabase Edge Function
-        console.log('🚀 PROD MODE: Using stel-events Edge Function');
-
+        // PROD: Use Supabase Edge Functions
+        console.log('🚀 PROD MODE: Using stel-events-v2 and stel-incidents-v2 Edge Functions');
+        
         try {
-          // Calculate date range: 1 month back and 1 month ahead
-          const now = new Date();
-          const startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-          const endDate = new Date(now.getFullYear(), now.getMonth() + 2, 0);
-
-          const startDateStr = startDate.toISOString().replace(/\.\d{3}Z$/, '+0000');
-          const endDateStr = endDate.toISOString().replace(/\.\d{3}Z$/, '+0000');
-
-          console.log(`📅 Fetching events from ${startDateStr} to ${endDateStr}`);
-
-          const { data, error } = await supabase.functions.invoke('stel-events', {
-            body: {
-              limit: '500',
-              startDate: startDateStr,
-              endDate: endDateStr,
-            },
-          });
-
-          if (error) {
-            console.error('❌ Edge function error (stel-events):', error);
-            throw error;
+          const oneMonthAgo = new Date();
+          oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+          const utcLastModificationDate = oneMonthAgo.toISOString().replace(/\.\d{3}Z$/, '+0000');
+          
+          console.log(`📅 Fetching events and incidents modified after: ${utcLastModificationDate}`);
+          
+          // Fetch events and incidents in parallel
+          const [eventsResult, incidentsResult] = await Promise.all([
+            supabase.functions.invoke('stel-events-v2', {
+              body: {
+                limit: '500',
+                utcLastModificationDate: utcLastModificationDate,
+              },
+            }),
+            supabase.functions.invoke('stel-incidents-v2', {
+              body: {
+                limit: '500',
+                utcLastModificationDate: utcLastModificationDate,
+              },
+            }),
+          ]);
+          
+          if (eventsResult.error) {
+            console.error('❌ Edge function error (stel-events-v2):', eventsResult.error);
+            throw eventsResult.error;
           }
-
-          console.log('✅ Events received from Edge Function:', data);
-
-          const allEvents = (data ?? []) as StelEvent[];
+          
+          if (incidentsResult.error) {
+            console.error('❌ Edge function error (stel-incidents-v2):', incidentsResult.error);
+            throw incidentsResult.error;
+          }
+          
+          const allEvents = (eventsResult.data ?? []) as StelEvent[];
+          const allIncidentsData = (incidentsResult.data ?? []) as StelIncident[];
+          
           console.log(`✅ Total events fetched: ${allEvents.length}`);
-
-          // Filter out deleted events
-          const validEvents = allEvents.filter(event => !event.deleted);
-
-          console.log(`📅 Filtered events: ${validEvents.length}/${allEvents.length} (not deleted)`);
-
-          // Process events (extract TEC codes from event types, etc.)
-          // This follows the same logic as DEV mode
-          const uniqueEventTypeIds = [...new Set(
-            validEvents
-              .map(e => e['event-type-id'])
-              .filter(id => id !== null && id !== undefined)
+          console.log(`✅ Total incidents fetched: ${allIncidentsData.length}`);
+          
+          // Filter events and incidents (same logic as DEV)
+          const oneMonthAgoDate = new Date();
+          oneMonthAgoDate.setMonth(oneMonthAgoDate.getMonth() - 1);
+          oneMonthAgoDate.setHours(0, 0, 0, 0);
+          const oneMonthAheadDate = new Date();
+          oneMonthAheadDate.setMonth(oneMonthAheadDate.getMonth() + 1);
+          oneMonthAheadDate.setHours(23, 59, 59, 999);
+          
+          const validEvents = allEvents.filter((event) => {
+            if (event.deleted) return false;
+            if (!event['start-date']) return false;
+            const eventDate = new Date(event['start-date']);
+            return eventDate >= oneMonthAgoDate && eventDate <= oneMonthAheadDate;
+          });
+          
+          const validIncidents = allIncidentsData.filter((incident) => {
+            if (incident.deleted) return false;
+            if (!incident.date) return false;
+            if (incident.reference && incident.reference.startsWith('I-PRT')) {
+              return false;
+            }
+            const incidentDate = new Date(incident.date);
+            return incidentDate >= oneMonthAgoDate && incidentDate <= oneMonthAheadDate;
+          });
+          
+          console.log(`✅ Valid events (not deleted, -1 month to +1 month): ${validEvents.length}`);
+          console.log(`✅ Valid incidents (not deleted, -1 month to +1 month): ${validIncidents.length}`);
+          
+          // Store incidents for WhatsApp
+          setAllIncidents(validIncidents);
+          
+          // Create assignee-id to TEC code map for WhatsApp
+          const uniqueAssigneeIds = [...new Set(
+            validIncidents
+              .map(i => i['assignee-id'])
+              .filter(id => id)
           )];
-
-          console.log(`🔍 Found ${uniqueEventTypeIds.length} unique event types: ${uniqueEventTypeIds.join(', ')}`);
-
-          // Fetch event types if we have any
-          const eventTypeToTecMap = new Map<number, string>();
-
-          if (uniqueEventTypeIds.length > 0) {
-            let eventTypesFetchSucceeded = false;
-            
-            try {
-              console.log('🔄 Attempting to fetch event types from stel-event-types...');
-              const { data: eventTypesData, error: eventTypesError } = await supabase.functions.invoke('stel-event-types', {
-                body: { ids: uniqueEventTypeIds },
-              });
-
-              if (eventTypesError) {
-                console.warn('⚠️ Could not fetch event types:', eventTypesError);
-              } else if (eventTypesData && Array.isArray(eventTypesData) && eventTypesData.length > 0) {
-                const eventTypes = eventTypesData as Array<{ id: number; name: string }>;
-                console.log(`✅ Fetched ${eventTypes.length} event types for IDs: ${uniqueEventTypeIds.join(', ')}`);
-
-                // Debug: show which IDs were found vs requested
-                const foundIds = eventTypes.map(et => et.id);
-                const missingIds = uniqueEventTypeIds.filter(id => !foundIds.includes(id));
-                if (missingIds.length > 0) {
-                  console.warn(`⚠️ Missing event types for IDs: ${missingIds.join(', ')}`);
-                }
-
-                eventTypes.forEach(eventType => {
-                  const techMatch = eventType.name.match(/TEC\s*(\d+)/i);
-                  if (techMatch) {
-                    const normalizedTech = `TEC${String(techMatch[1]).padStart(3, '0')}`;
-                    eventTypeToTecMap.set(eventType.id, normalizedTech);
-                    console.log(`✅ Mapped event type ${eventType.id} (${eventType.name}) to ${normalizedTech}`);
-                  } else {
-                    console.warn(`⚠️ Event type ${eventType.id} has no TEC in name: "${eventType.name}"`);
-                  }
-                });
-
-                console.log(`✅ Mapped ${eventTypeToTecMap.size}/${eventTypes.length} event types to TEC codes`);
-                eventTypesFetchSucceeded = eventTypeToTecMap.size > 0;
-              } else {
-                console.warn('⚠️ Event types data is empty or invalid');
-              }
-            } catch (eventTypesException) {
-              console.warn('⚠️ Exception fetching event types:', eventTypesException);
-            }
-            
-            // FALLBACK: If event types fetch failed, try to get TEC codes directly from employees
-            if (!eventTypesFetchSucceeded) {
-              console.log('🔄 FALLBACK: Event types fetch failed, trying to get TEC codes from employees...');
-              
-              // Get unique employee IDs from events
-              const uniqueEmployeeIds = [...new Set(
-                validEvents
-                  .map(e => e['assigned-to-id'])
-                  .filter(id => id !== null && id !== undefined)
-              )];
-              
-              console.log(`🔍 Found ${uniqueEmployeeIds.length} unique employees to fetch`);
-              
-              // Fetch each employee and extract TEC from their name
-              const employeeToTecMap = new Map<number, string>();
-              
-              for (const employeeId of uniqueEmployeeIds) {
-                try {
-                  const { data: employeeData, error: employeeError } = await supabase.functions.invoke('stel-employee', {
-                    body: { employeeId: employeeId },
-                  });
-                  
-                  if (!employeeError && employeeData) {
-                    const employee = employeeData as { id: number; name: string };
-                    const techMatch = employee.name?.match(/TEC\s*(\d+)/i);
-                    if (techMatch) {
-                      const normalizedTech = `TEC${String(techMatch[1]).padStart(3, '0')}`;
-                      employeeToTecMap.set(employeeId, normalizedTech);
-                      console.log(`✅ FALLBACK: Mapped employee ${employeeId} (${employee.name}) to ${normalizedTech}`);
-                    }
-                  }
-                } catch (employeeException) {
-                  console.warn(`⚠️ FALLBACK: Could not fetch employee ${employeeId}:`, employeeException);
-                }
-              }
-              
-              // Map employee TEC codes back to event types
-              if (employeeToTecMap.size > 0) {
-                validEvents.forEach(event => {
-                  const employeeId = event['assigned-to-id'];
-                  const eventTypeId = event['event-type-id'];
-                  
-                  if (employeeId && eventTypeId && employeeToTecMap.has(employeeId)) {
-                    const tecCode = employeeToTecMap.get(employeeId)!;
-                    if (!eventTypeToTecMap.has(eventTypeId)) {
-                      eventTypeToTecMap.set(eventTypeId, tecCode);
-                      console.log(`✅ FALLBACK: Mapped event-type ${eventTypeId} to ${tecCode} via employee ${employeeId}`);
-                    }
-                  }
-                });
-                
-                console.log(`✅ FALLBACK: Successfully mapped ${eventTypeToTecMap.size} event types via employee data`);
-              } else {
-                console.warn('⚠️ FALLBACK: Could not map any employees to TEC codes');
-              }
-            }
-          }
-
-          // Create assignee-to-TEC map from event assignments
+          
+          console.log(`🔍 Creating assignee-to-TEC map for ${uniqueAssigneeIds.length} assignees...`);
+          
           const assigneeMap = new Map<number, string>();
-
-          for (const event of validEvents) {
-            const employeeId = event['assigned-to-id'];
-            if (employeeId && event['event-type-id'] && eventTypeToTecMap.has(event['event-type-id'])) {
-              const tecCode = eventTypeToTecMap.get(event['event-type-id'])!;
-              const numericId = typeof employeeId === 'string' ? parseInt(employeeId, 10) : employeeId;
-              if (!isNaN(numericId)) {
-                assigneeMap.set(numericId, tecCode);
-                console.log(`✅ Mapped event assignee ${employeeId} to ${tecCode} via event type`);
+          
+          for (const employeeId of uniqueAssigneeIds) {
+            try {
+              const { data: employeeData, error: employeeError } = await supabase.functions.invoke('stel-employee-v2', {
+                body: { employeeId: employeeId.toString() },
+              });
+              
+              if (!employeeError && employeeData) {
+                const employee = Array.isArray(employeeData) ? employeeData[0] : employeeData;
+                const techMatch = employee?.name?.match(/TEC\s*(\d+)/i);
+                if (techMatch) {
+                  const normalizedTech = `TEC${String(techMatch[1]).padStart(3, '0')}`;
+                  assigneeMap.set(employeeId, normalizedTech);
+                  console.log(`✅ Mapped assignee ${employeeId} to ${normalizedTech}`);
+                }
               }
+            } catch (error) {
+              console.warn(`⚠️ Exception fetching employee ${employeeId}:`, error);
             }
           }
-
+          
           setAssigneeToTecMap(assigneeMap);
           console.log(`✅ Created assignee-to-TEC map with ${assigneeMap.size} entries`);
-
+          
           // Use events for UI display
           await applyEvents(validEvents);
           return;
-
         } catch (edgeFunctionError) {
           console.error('❌ Edge Function request failed:', edgeFunctionError);
           toast({
@@ -2490,7 +2404,7 @@ const Calendario = () => {
                                   </div>
                                   <div className="font-semibold text-[11px]">{event.title}</div>
                                   <div className="text-[10px] opacity-90 mt-0.5">
-                                    {event.resource?.['full-reference'] || event.resource?.reference || 'Sin referencia'}
+                                    {(event.resource as any)?.['full-reference'] || (event.resource as any)?.reference || 'Sin referencia'}
                                   </div>
                                 </div>
                               ),
