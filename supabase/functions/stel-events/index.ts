@@ -59,7 +59,15 @@ serve(async (req: Request) => {
     }
 
     const allEvents = await response.json()
-    console.log(`Total events fetched: ${allEvents.length}`)
+    console.log(`Total events fetched: ${Array.isArray(allEvents) ? allEvents.length : 'NOT AN ARRAY'}`)
+    
+    if (!Array.isArray(allEvents)) {
+      console.error(`ERROR: Response is not an array, it's a ${typeof allEvents}`)
+      console.log(`Response structure: ${JSON.stringify(allEvents).substring(0, 200)}`)
+      return new Response(JSON.stringify([]), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      })
+    }
 
     // Filter: not deleted AND event date within the requested range
     interface Event {
@@ -69,6 +77,8 @@ serve(async (req: Request) => {
       [key: string]: unknown
     }
 
+    console.log(`Starting filtering of ${allEvents.length} events...`)
+    
     const filtered = allEvents.filter((event: Event) => {
       if (event.deleted) return false
       if (!event.date) return false
@@ -77,6 +87,11 @@ serve(async (req: Request) => {
     })
 
     console.log(`Filtered ${filtered.length}/${allEvents.length} events (not deleted)`)
+    
+    if (filtered.length === 0) {
+      console.warn(`⚠️ WARNING: All ${allEvents.length} events were filtered out!`)
+      console.log(`Sample event (first): ${JSON.stringify(allEvents[0])}`)
+    }
 
     // Log unique event type IDs for debugging
     const uniqueEventTypeIds = [...new Set(
