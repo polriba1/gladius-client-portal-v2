@@ -722,16 +722,34 @@ const Landing = () => {
       {/* Footer */}
       <footer className="bg-background border-t border-border py-8 sm:py-12">
         <div className="container mx-auto px-4 sm:px-6">
-          <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-            <div className="flex items-center space-x-3">
-              <div className="w-6 h-6 sm:w-8 sm:h-8 bg-primary rounded-lg flex items-center justify-center">
-                <Sword className="w-3 h-3 sm:w-4 sm:h-4 text-primary-foreground" />
+          <div className="space-y-6">
+            {/* Main Footer Info */}
+            <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+              <div className="flex items-center space-x-3">
+                <div className="w-6 h-6 sm:w-8 sm:h-8 bg-primary rounded-lg flex items-center justify-center">
+                  <Sword className="w-3 h-3 sm:w-4 sm:h-4 text-primary-foreground" />
+                </div>
+                <span className="text-base sm:text-lg font-semibold text-foreground">GladiusAI</span>
               </div>
-              <span className="text-base sm:text-lg font-semibold text-foreground">GladiusAI</span>
+              <p className="text-xs sm:text-sm text-muted-foreground text-center">
+                {t('footer.rights')}
+              </p>
             </div>
-            <p className="text-xs sm:text-sm text-muted-foreground text-center">
-              {t('footer.rights')}
-            </p>
+
+            {/* Meta Business Verification Section */}
+            <div className="border-t border-border pt-6 mt-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs text-muted-foreground">
+                <div>
+                  <p className="font-semibold text-foreground mb-2">GladiusAI</p>
+                  <p><span className="font-medium">Titular:</span> Pol Riba Escura</p>
+                  <p><span className="font-medium">NIF:</span> 47753526Y</p>
+                </div>
+                <div>
+                  <p className="font-semibold text-foreground mb-2">Contacte</p>
+                  <p><a href="mailto:pol@gladiusai.es" className="hover:text-foreground transition-colors">pol@gladiusai.es</a></p>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </footer>
