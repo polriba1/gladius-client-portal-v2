@@ -935,22 +935,35 @@ const Calendario = () => {
       };
     });
     
+    // 🕐 SORT EVENTS BY TIME - From earliest to latest
+    const sortedEvents = [...validEventsForWhatsApp].sort((a, b) => {
+      const timeA = a.start.getTime();
+      const timeB = b.start.getTime();
+      console.log(`🕐 Sorting: Event ${a.resource?.reference} (${moment(a.start).format('HH:mm')}) vs Event ${b.resource?.reference} (${moment(b.start).format('HH:mm')})`);
+      return timeA - timeB;
+    });
+    
+    console.log(`🕐 SORTED ORDER:`);
+    sortedEvents.forEach((e, idx) => {
+      console.log(`   ${idx + 1}. ${e.resource?.reference} - ${moment(e.start).format('HH:mm')}`);
+    });
+
     const dateStr = moment(date).format('dddd, D [de] MMMM [de] YYYY');
-    const totalHours = validEventsForWhatsApp.reduce((acc, event) => {
+    const totalHours = sortedEvents.reduce((acc, event) => {
       return acc + moment.duration(moment(event.end).diff(moment(event.start))).asHours();
     }, 0);
 
     let text = `📋 *Agenda para ${technicianName}*\n`;
     text += `📅 ${dateStr}\n`;
-    text += `⏱️ Total: ${validEventsForWhatsApp.length} servicios (${totalHours.toFixed(1)}h)\n`;
+    text += `⏱️ Total: ${sortedEvents.length} servicios (${totalHours.toFixed(1)}h)\n`;
     text += `\n`;
     text += `━━━━━━━━━━━━━━━━━━━━\n\n`;
 
     // Fetch all client info, address info in parallel
-    console.log(`📡 Fetching data for ${validEventsForWhatsApp.length} incidents...`);
+    console.log(`📡 Fetching data for ${sortedEvents.length} incidents...`);
     
     // Extract all IDs first to maintain consistency (from incidents now)
-    const clientIds = validEventsForWhatsApp.map((event) => {
+    const clientIds = sortedEvents.map((event) => {
       let clientId = event.resource?.['account-path']?.split('/').pop();
       if (!clientId || clientId === '' || clientId === 'undefined') {
         clientId = event.resource?.['account-id']?.toString();
@@ -958,10 +971,10 @@ const Calendario = () => {
       return clientId;
     });
     
-    const clientPromises = validEventsForWhatsApp.map(async (event, index) => {
+    const clientPromises = sortedEvents.map(async (event, index) => {
       const clientId = clientIds[index];
       
-      console.log(`📋 Incident ${index + 1}/${validEventsForWhatsApp.length}: Client ID:`, clientId, '| account-path:', event.resource?.['account-path'], '| account-id:', event.resource?.['account-id']);
+      console.log(`📋 Incident ${index + 1}/${sortedEvents.length}: Client ID:`, clientId, '| account-path:', event.resource?.['account-path'], '| account-id:', event.resource?.['account-id']);
       
       if (!clientId) {
         console.warn(`⚠️ Incident ${event.id} has no account-path or account-id`);
@@ -978,7 +991,7 @@ const Calendario = () => {
       }
     });
     
-    const addressIds = validEventsForWhatsApp.map((event) => {
+    const addressIds = sortedEvents.map((event) => {
       let addressId = event.resource?.['address-path']?.split('/').pop();
       if (!addressId || addressId === '' || addressId === 'undefined') {
         addressId = event.resource?.['address-id']?.toString();
@@ -986,7 +999,7 @@ const Calendario = () => {
       return addressId;
     });
     
-    const addressPromises = validEventsForWhatsApp.map(async (event, index) => {
+    const addressPromises = sortedEvents.map(async (event, index) => {
       const addressId = addressIds[index];
       
       if (!addressId) {
@@ -1008,8 +1021,8 @@ const Calendario = () => {
     
     console.log(`✅ Fetched ${clientsInfo.filter(c => c).length} clients, ${addressesInfo.filter(a => a).length} addresses`);
 
-    // IMPORTANT: Always use incidents for WhatsApp text construction (ORIGINAL CODE - MAINTAINED INTACT)
-    validEventsForWhatsApp.forEach((event, index) => {
+    // IMPORTANT: Always use incidents for WhatsApp text construction (SORTED BY TIME)
+    sortedEvents.forEach((event, index) => {
       const clientInfo = clientsInfo[index];
       const addressInfo = addressesInfo[index];
       const clientId = clientIds[index];
@@ -1071,7 +1084,7 @@ const Calendario = () => {
       }
       
       // Separator between incidents
-      if (index < validEventsForWhatsApp.length - 1) {
+      if (index < sortedEvents.length - 1) {
         text += `\n━━━━━━━━━━━━━━━━━━━━\n\n`;
       }
     });
