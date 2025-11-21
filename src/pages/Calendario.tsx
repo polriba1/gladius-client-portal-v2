@@ -1477,20 +1477,36 @@ const Calendario = () => {
           try {
             let employee = null;
             
-            // DEV: use Vite proxy
-            const employeeUrl = `/api/stel/app/employees/${employeeId}`;
-            const response = await fetch(employeeUrl, {
-              headers: {
-                APIKEY: import.meta.env.VITE_STEL_API_KEY,
-              },
-            });
-            
-            if (response.ok) {
-              const employeeData = await response.json();
-              employee = Array.isArray(employeeData) ? employeeData[0] : employeeData;
-            } else if (response.status === 404) {
-              console.warn(`⚠️ Employee ${employeeId} not found (404)`);
-              continue;
+            if (import.meta.env.DEV) {
+              // DEV: use Vite proxy
+              const employeeUrl = `/api/stel/app/employees/${employeeId}`;
+              const response = await fetch(employeeUrl, {
+                headers: {
+                  APIKEY: import.meta.env.VITE_STEL_API_KEY,
+                },
+              });
+              
+              if (response.ok) {
+                const employeeData = await response.json();
+                employee = Array.isArray(employeeData) ? employeeData[0] : employeeData;
+              } else if (response.status === 404) {
+                console.warn(`⚠️ Employee ${employeeId} not found (404)`);
+                continue;
+              }
+            } else {
+              // PROD: use Edge Function
+              const { data, error } = await supabase.functions.invoke('stel-employee-v2', {
+                body: { employeeId: String(employeeId) }
+              });
+              
+              if (error) {
+                console.warn(`⚠️ Edge function error fetching employee ${employeeId}:`, error);
+                continue;
+              }
+              
+              if (data) {
+                employee = data;
+              }
             }
             
             if (employee) {
