@@ -924,6 +924,23 @@ const Calendario = () => {
         console.warn('⚠️ Failed to fetch incident states on-demand:', e);
       }
     }
+
+    // Check if we have incidents in state, if not try to fetch them on-demand
+    let currentIncidents = allIncidents;
+    if (currentIncidents.length === 0) {
+      console.log('⚠️ No incidents found in state - attempting to fetch on-demand...');
+      try {
+        const fetched = await fetchIncidents();
+        if (fetched && fetched.length > 0) {
+          currentIncidents = fetched;
+          console.log(`✅ Fetched ${fetched.length} incidents on-demand`);
+        } else {
+          console.log('⚠️ On-demand fetch returned no incidents');
+        }
+      } catch (e) {
+        console.warn('⚠️ Failed to fetch incidents on demand:', e);
+      }
+    }
     
     // Step 1: Filter incidents by date and technician (ruta antiga) - EXACT MATCH REQUIRED
     const targetDateStr = moment(date).format('YYYY-MM-DD');
@@ -931,7 +948,7 @@ const Calendario = () => {
     console.log(`👤 Target technician (EXACT): ${technicianName}`);
     
     // Get all incidents for this EXACT technician and EXACT date
-    const incidentsForWhatsApp = allIncidents.filter((incident) => {
+    const incidentsForWhatsApp = currentIncidents.filter((incident) => {
       // Step 1: Must have date
       if (!incident.date) {
         console.log(`❌ Incident ${incident.id}: No date`);
@@ -1625,6 +1642,7 @@ const Calendario = () => {
         }
 
         console.log('✅ Incidents fetched and processed for WhatsApp integration (not updating calendar view)');
+        return validIncidents;
       };
 
       if (import.meta.env.DEV) {
@@ -1691,8 +1709,7 @@ const Calendario = () => {
             console.log(`📅 Actual incidents date range: ${dates[0]} to ${dates[dates.length - 1]}`);
           }
 
-          await applyIncidents(validIncidents);
-          return;
+          return await applyIncidents(validIncidents);
         } catch (viteError) {
           console.warn('❌ Vite proxy request failed:', viteError);
           toast({
@@ -1745,8 +1762,7 @@ const Calendario = () => {
           
           console.log(`✅ Valid incidents (not deleted, -1 month to +1 month): ${validIncidents.length}`);
           
-          await applyIncidents(validIncidents);
-          return;
+          return await applyIncidents(validIncidents);
         } catch (edgeFunctionError) {
           console.error('❌ Edge Function request failed:', edgeFunctionError);
           toast({
