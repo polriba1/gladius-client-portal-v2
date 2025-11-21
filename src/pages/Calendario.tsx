@@ -2063,7 +2063,7 @@ const Calendario = () => {
       }
 
       // Also fetch incidents for WhatsApp logic
-      fetchIncidents().catch(e => console.warn('⚠️ fetchIncidents failed:', e));
+      await fetchIncidents().catch(e => console.warn('⚠️ fetchIncidents failed:', e));
 
     } catch (error) {
       console.error('Error fetching events:', error);
