@@ -1015,7 +1015,8 @@ const Calendario = () => {
     
     if (incidentsForWhatsApp.length === 0) {
       const dateStr = moment(date).format('dddd, D [de] MMMM [de] YYYY');
-      return `📋 *Agenda para ${technicianName}*\n📅 ${dateStr}\n⏱️ Total: 0 servicios (0.0h)\n\nNo hay incidencias disponibles para esta fecha.`;
+      const msg = `📋 *Agenda para ${technicianName}*\n📅 ${dateStr}\n⏱️ Total: 0 servicios (0.0h)\n\nNo hay incidencias disponibles para esta fecha.`;
+      return { all: msg, accepted: msg };
     }
     
     // Step 2: Convert incidents to CalendarEvent format for WhatsApp
@@ -1573,9 +1574,9 @@ const Calendario = () => {
               
               // Map incident types by ID
               allIncidentTypes.forEach((incidentType) => {
-                if (uniqueIncidentTypeIds.includes(incidentType.id) && incidentType.name) {
+                if (incidentType.name) {
                   incidentTypeMap.set(incidentType.id, incidentType);
-                  console.log(`✅ Mapped incident type ${incidentType.id} to "${incidentType.name}"`);
+                  // console.log(`✅ Mapped incident type ${incidentType.id} to "${incidentType.name}"`);
                 }
               });
               
@@ -1600,9 +1601,9 @@ const Calendario = () => {
               
               // Map incident types by ID
               incidentTypesData.forEach((incidentType: StelIncidentType) => {
-                if (uniqueIncidentTypeIds.includes(incidentType.id) && incidentType.name) {
+                if (incidentType.name) {
                   incidentTypeMap.set(incidentType.id, incidentType);
-                  console.log(`✅ Mapped incident type ${incidentType.id} to "${incidentType.name}"`);
+                  // console.log(`✅ Mapped incident type ${incidentType.id} to "${incidentType.name}"`);
                 }
               });
             }
