@@ -1607,129 +1607,7 @@ const Calendario = () => {
           console.warn('⚠️ Failed to fetch incident states in fetchIncidents:', e);
         }
 
-        // Map incidents to calendar events with real TEC codes
-        const calendarEvents: CalendarEvent[] = validIncidents.map((incident, index) => {
-          // Incidents have a single 'date' field: "2024-09-30T09:00:00+0000"
-          // The API already sends dates in CET, so we parse them as-is without timezone conversion
-          const startMoment = moment(incident.date);
-          const startDate = startMoment.toDate();
-          
-          // incident.length is in MINUTES (e.g., length: 60 = 1 hour)
-          // Default to 120 minutes (2 hours) if not specified
-          const durationMinutes = incident.length || 120;
-          const endDate = startMoment.clone().add(durationMinutes, 'minutes').toDate();
-          
-          // Get TEC code from assignee map
-          const technicianId = incident['assignee-id'] 
-            ? (assigneeMap.get(incident['assignee-id']) || 'Sin Asignar')
-            : 'Sin Asignar';
-
-          const calendarEvent = {
-            id: incident.id,
-            title: incident.description || `INC ${incident.reference}`,
-            start: startDate,
-            end: endDate,
-            resource: incident,
-            technician: technicianId,
-          };
-          
-          return calendarEvent;
-        });
-        
-        // Create a map to group events by technician
-        const technicianMap = new Map<string, CalendarEvent[]>();
-        
-        // Collect all unique technicians
-        const allTechnicians = new Set<string>();
-        calendarEvents.forEach(event => {
-          if (event.technician) {
-            allTechnicians.add(event.technician);
-          }
-        });
-        
-        console.log('🔧 Detected Technicians:', {
-          totalTechnicians: allTechnicians.size,
-          technicians: Array.from(allTechnicians).sort()
-        });
-        
-        // Initialize all technicians (even if they have no events today)
-        allTechnicians.forEach(techId => {
-          technicianMap.set(techId, []);
-        });
-        
-        // Add a "Sin Asignar" category for events without technician
-        technicianMap.set('Sin Asignar', []);
-        
-        // Add events to their respective technicians
-        calendarEvents.forEach(event => {
-          const tech = event.technician || 'Sin Asignar';
-          if (technicianMap.has(tech)) {
-            technicianMap.get(tech)!.push(event);
-          } else {
-            technicianMap.set(tech, [event]);
-          }
-        });
-
-        // Create technician schedules with colors
-        const schedules: TechnicianSchedule[] = Array.from(technicianMap.entries())
-          .map(([name, events]) => ({
-            name,
-            events,
-            color: getColorForCalendar(name)
-          }))
-          .sort((a, b) => {
-            // Sort "Sin Asignar" last
-            if (a.name === 'Sin Asignar') return 1;
-            if (b.name === 'Sin Asignar') return -1;
-            // Sort technicians numerically (TEC080, TEC087, TEC090, etc.)
-            const aNum = parseInt(a.name.replace('TEC', '')) || 0;
-            const bNum = parseInt(b.name.replace('TEC', '')) || 0;
-            return aNum - bNum;
-          })
-        
-        // Find the earliest event date to help user navigate
-        if (calendarEvents.length > 0) {
-          const earliestEvent = calendarEvents.reduce((min, event) => 
-            event.start < min.start ? event : min
-          );
-          console.log('📅 Earliest Event Date:', moment(earliestEvent.start).format('YYYY-MM-DD'));
-        }
-
-        setEvents(calendarEvents);
-        setTechnicianSchedules(schedules);
-
-        console.log('✅ Final Schedules:', {
-          totalSchedules: schedules.length,
-          schedules: schedules.map(s => ({
-            name: s.name,
-            totalEvents: s.events.length,
-            color: s.color
-          }))
-        });
-
-        // Show date range of loaded events
-        if (calendarEvents.length > 0) {
-          const dates = calendarEvents.map(e => moment(e.start).format('YYYY-MM-DD')).sort();
-          const earliestDate = dates[0];
-          const latestDate = dates[dates.length - 1];
-          
-          console.log('📅 Events Date Range:', {
-            earliest: earliestDate,
-            latest: latestDate,
-            total: calendarEvents.length
-          });
-          
-          toast({
-            title: 'Incidencias Cargadas',
-            description: `${calendarEvents.length} incidencias de ${schedules.length} técnicos (${earliestDate} a ${latestDate})`,
-          });
-        } else {
-          toast({
-            title: 'Sin Incidencias',
-            description: 'No se encontraron incidencias en la respuesta de la API',
-            variant: 'destructive',
-          });
-        }
+        console.log('✅ Incidents fetched and processed for WhatsApp integration (not updating calendar view)');
       };
 
       if (import.meta.env.DEV) {
@@ -2127,7 +2005,49 @@ const Calendario = () => {
             variant: 'destructive',
           });
         }
+      };
+
+      // Fetch events logic
+      if (import.meta.env.DEV) {
+        console.log('✅ Running in DEV mode, using Vite proxy');
+        try {
+          const oneMonthAgo = new Date();
+          oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+          const utcLastModificationDate = oneMonthAgo.toISOString().replace(/\.\d{3}Z$/, '+0000');
+          
+          const limit = 500;
+          const proxyUrl = `/api/stel/app/events?limit=${limit}&utc-last-modification-date=${encodeURIComponent(utcLastModificationDate)}`;
+          
+          const response = await fetch(proxyUrl, {
+            headers: { APIKEY: import.meta.env.VITE_STEL_API_KEY },
+          });
+
+          if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+
+          const allEvents = (await response.json()) as StelEvent[];
+          await applyEvents(allEvents);
+        } catch (error) {
+           console.error('Error in DEV fetch:', error);
+           throw error;
+        }
+      } else {
+        console.log('🚀 PROD MODE: Using stel-events-v2 Edge Function');
+        const { data: eventsData, error: eventsError } = await supabase.functions.invoke('stel-events-v2', {
+          body: { limit: '500' },
+        });
+        
+        if (eventsError) throw new Error(`Edge Function Error: ${eventsError.message}`);
+        
+        if (eventsData && Array.isArray(eventsData)) {
+           await applyEvents(eventsData as StelEvent[]);
+        } else {
+           await applyEvents([]);
+        }
       }
+
+      // Also fetch incidents for WhatsApp logic
+      fetchIncidents().catch(e => console.warn('⚠️ fetchIncidents failed:', e));
+
     } catch (error) {
       console.error('Error fetching events:', error);
       const message = error instanceof Error ? error.message : String(error);
@@ -2440,17 +2360,20 @@ const Calendario = () => {
                               },
                             }}
                             components={{
-                              event: ({ event }: { event: CalendarEvent }) => (
-                                <div className="text-xs p-1.5 font-medium overflow-hidden h-full">
-                                  <div className="font-bold text-[12px] mb-0.5">
-                                    {moment(event.start).format('HH:mm')} - {moment(event.end).format('HH:mm')}
+                              event: ({ event }: { event: CalendarEvent }) => {
+                                const resource = event.resource as any;
+                                return (
+                                  <div className="text-xs p-1.5 font-medium overflow-hidden h-full">
+                                    <div className="font-bold text-[12px] mb-0.5">
+                                      {moment(event.start).format('HH:mm')} - {moment(event.end).format('HH:mm')}
+                                    </div>
+                                    <div className="font-semibold text-[11px]">{event.title}</div>
+                                    <div className="text-[10px] opacity-90 mt-0.5">
+                                      {resource?.['full-reference'] || resource?.reference || 'Sin referencia'}
+                                    </div>
                                   </div>
-                                  <div className="font-semibold text-[11px]">{event.title}</div>
-                                  <div className="text-[10px] opacity-90 mt-0.5">
-                                    {(event.resource as Record<string, string | undefined>)?.['full-reference'] || (event.resource as Record<string, string | undefined>)?.reference || 'Sin referencia'}
-                                  </div>
-                                </div>
-                              ),
+                                );
+                              },
                             }}
                             eventPropGetter={() => ({
                               style: {
