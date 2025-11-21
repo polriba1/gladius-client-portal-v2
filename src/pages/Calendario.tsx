@@ -1428,9 +1428,9 @@ const Calendario = () => {
     };
   }, [navigate]);
 
-  const fetchIncidents = async () => {
+  const fetchIncidents = async (shouldSetLoading = true) => {
     console.log('🚀 fetchIncidents called - LOADING INCIDENTS (NOT EVENTS)!');
-    setLoading(true);
+    if (shouldSetLoading) setLoading(true);
     try {
       const today = new Date();
       const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
@@ -1781,7 +1781,7 @@ const Calendario = () => {
         variant: 'destructive',
       });
     } finally {
-      setLoading(false);
+      if (shouldSetLoading) setLoading(false);
       console.log('🏁 fetchIncidents completed');
     }
   };
@@ -2079,7 +2079,7 @@ const Calendario = () => {
       }
 
       // Also fetch incidents for WhatsApp logic
-      await fetchIncidents().catch(e => console.warn('⚠️ fetchIncidents failed:', e));
+      await fetchIncidents(false).catch(e => console.warn('⚠️ fetchIncidents failed:', e));
 
     } catch (error) {
       console.error('Error fetching events:', error);
@@ -2244,7 +2244,20 @@ const Calendario = () => {
       )}
 
       {/* Multiple Technician Calendars - Horizontal Scroll View */}
-      {technicianSchedules.length > 0 && (
+      {loading ? (
+        <div className="flex flex-col items-center justify-center py-20 space-y-4">
+          <div className="relative">
+            <div className="w-16 h-16 border-4 border-primary/20 border-t-primary rounded-full animate-spin"></div>
+            <div className="absolute inset-0 flex items-center justify-center">
+              <CalendarIcon className="h-6 w-6 text-primary/50" />
+            </div>
+          </div>
+          <div className="text-center">
+            <h3 className="text-lg font-semibold text-foreground">Cargando calendario...</h3>
+            <p className="text-muted-foreground">Sincronizando eventos e incidencias de STEL Order</p>
+          </div>
+        </div>
+      ) : technicianSchedules.length > 0 && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-semibold">Vista por Técnico</h2>
