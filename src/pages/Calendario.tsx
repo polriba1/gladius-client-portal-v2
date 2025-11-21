@@ -2361,7 +2361,10 @@ const Calendario = () => {
                             }}
                             components={{
                               event: ({ event }: { event: CalendarEvent }) => {
-                                const resource = event.resource as any;
+                                const resource = event.resource as Record<string, unknown>;
+                                const fullReference = resource?.['full-reference'] as string | undefined;
+                                const reference = resource?.reference as string | undefined;
+                                
                                 return (
                                   <div className="text-xs p-1.5 font-medium overflow-hidden h-full">
                                     <div className="font-bold text-[12px] mb-0.5">
@@ -2369,7 +2372,7 @@ const Calendario = () => {
                                     </div>
                                     <div className="font-semibold text-[11px]">{event.title}</div>
                                     <div className="text-[10px] opacity-90 mt-0.5">
-                                      {resource?.['full-reference'] || resource?.reference || 'Sin referencia'}
+                                      {fullReference || reference || 'Sin referencia'}
                                     </div>
                                   </div>
                                 );
