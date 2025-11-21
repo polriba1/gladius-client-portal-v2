@@ -11,7 +11,7 @@ console.log("STEL Incident Types V2 function loaded")
 serve(async (req: Request) => {
   // Handle CORS preflight requests
   if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders })
+    return new Response("ok", { headers: corsHeaders, status: 200 })
   }
 
   try {
