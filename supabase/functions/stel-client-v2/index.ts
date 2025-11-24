@@ -1,16 +1,16 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-requested-with, x-supabase-auth",
+  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+}
+
 console.log("STEL Client V2 function loaded")
 
 serve(async (req: Request) => {
-  const corsHeaders = {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-requested-with, x-supabase-auth",
-    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-  }
-
+  // Handle CORS preflight requests
   if (req.method === "OPTIONS") {
-    console.log("Handling OPTIONS preflight request")
     return new Response("ok", { headers: corsHeaders, status: 200 })
   }
 
@@ -26,11 +26,11 @@ serve(async (req: Request) => {
     if (req.method === "POST") {
       try {
         const body = await req.json()
-        clientId = body.clientId || ""
+        clientId = body.clientId ? String(body.clientId).trim() : ""
         console.log(`Request body: clientId=${clientId}`)
-      } catch (_e) {
-        console.log("No JSON body received")
-        return new Response(JSON.stringify({ error: "clientId required" }), {
+      } catch (e) {
+        console.error("Error parsing JSON body:", e)
+        return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         })
@@ -47,19 +47,17 @@ serve(async (req: Request) => {
     console.log(`Fetching client ${clientId}`)
 
     // Try 1: Regular clients endpoint
-    let clientUrl = `https://app.stelorder.com/app/clients/${clientId}`
+    const clientUrl = `https://app.stelorder.com/app/clients/${clientId}`
     console.log(`[1/2] Trying clients endpoint: ${clientUrl}`)
     
     let response = await fetch(clientUrl, {
       headers: { APIKEY: stelApiKey },
     })
     
-    let client = null
-    
     if (response.ok) {
       const clientData = await response.json()
       console.log(`✅ Clients endpoint SUCCESS`)
-      client = Array.isArray(clientData) ? clientData[0] : clientData
+      const client = Array.isArray(clientData) ? clientData[0] : clientData
       
       if (client && client.id) {
         console.log(`Found client in /clients: ${client.name || client['legal-name']} (ID: ${client.id})`)
@@ -72,10 +70,10 @@ serve(async (req: Request) => {
     }
     
     // Try 2: Potential clients endpoint (fallback)
-    clientUrl = `https://app.stelorder.com/app/potentialClients/${clientId}`
-    console.log(`[2/2] Trying potentialClients endpoint: ${clientUrl}`)
+    const potentialClientUrl = `https://app.stelorder.com/app/potentialClients/${clientId}`
+    console.log(`[2/2] Trying potentialClients endpoint: ${potentialClientUrl}`)
     
-    response = await fetch(clientUrl, {
+    response = await fetch(potentialClientUrl, {
       headers: { APIKEY: stelApiKey },
     })
     
@@ -93,7 +91,7 @@ serve(async (req: Request) => {
     }
     
     const clientData = await response.json()
-    client = Array.isArray(clientData) ? clientData[0] : clientData
+    const client = Array.isArray(clientData) ? clientData[0] : clientData
     
     if (!client || !client.id) {
       throw new Error(`Client ${clientId} not found or has invalid response`)

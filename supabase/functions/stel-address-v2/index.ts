@@ -1,16 +1,16 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-requested-with, x-supabase-auth",
+  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+}
+
 console.log("STEL Address V2 function loaded")
 
 serve(async (req: Request) => {
-  const corsHeaders = {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-requested-with, x-supabase-auth",
-    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-  }
-
+  // Handle CORS preflight requests
   if (req.method === "OPTIONS") {
-    console.log("Handling OPTIONS preflight request")
     return new Response("ok", { headers: corsHeaders, status: 200 })
   }
 
@@ -26,11 +26,11 @@ serve(async (req: Request) => {
     if (req.method === "POST") {
       try {
         const body = await req.json()
-        addressId = body.addressId || ""
+        addressId = body.addressId ? String(body.addressId).trim() : ""
         console.log(`Request body: addressId=${addressId}`)
-      } catch (_e) {
-        console.log("No JSON body received")
-        return new Response(JSON.stringify({ error: "addressId required" }), {
+      } catch (e) {
+        console.error("Error parsing JSON body:", e)
+        return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         })

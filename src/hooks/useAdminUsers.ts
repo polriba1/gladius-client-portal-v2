@@ -46,57 +46,23 @@ export const useAdminUsers = () => {
       setLoading(true);
       devLog('🔍 Fetching users via edge function...');
       
-      const { data: session } = await supabase.auth.getSession();
-      const token = session.session?.access_token;
-      if (!token) throw new Error('No access token');
-      const resp = await fetch('/api/admin-users-list', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-        const contentType = resp.headers.get('content-type') || '';
-        const json = contentType.includes('application/json')
-          ? await resp.json().catch(() => ({}))
-          : {};
+      const { data, error } = await supabase.functions.invoke('get-users-with-emails');
 
-        if (!resp.ok) throw new Error((json as ApiResponse).error || 'Failed to fetch users');
+      if (error) throw error;
 
-        // If we received a proper JSON array of users, use it
-        if (Array.isArray((json as ApiResponse).users)) {
-          const arr = (json as ApiResponse).users as AdminUser[];
-          devLog(`✅ Fetched ${arr.length} users`);
-          setUsers(arr);
-          return;
-        }
+      const json = data as ApiResponse;
 
-        // Development fallback: if /api returned HTML (Vite dev server) or empty object, call the Supabase function directly
-        if (import.meta.env.DEV) {
-          try {
-            devLog('ℹ️ /api returned no users or non-JSON; trying direct Supabase function fallback');
-            const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-            if (!supabaseUrl) throw new Error('VITE_SUPABASE_URL not configured');
-            const direct = await fetch(`${supabaseUrl}/functions/v1/get-users-with-emails`, {
-              method: 'GET',
-              headers: { Authorization: `Bearer ${token}` },
-            });
-            const directCT = direct.headers.get('content-type') || '';
-            const directJson = directCT.includes('application/json')
-              ? await direct.json().catch(() => ({}))
-              : {};
-            if (!direct.ok) throw new Error((directJson as ApiResponse).error || 'Failed (direct) to fetch users');
-            if (Array.isArray((directJson as ApiResponse).users)) {
-              const arr = (directJson as ApiResponse).users as AdminUser[];
-              devLog(`✅ Fetched ${arr.length} users (direct)`);
-              setUsers(arr);
-              return;
-            }
-            devLog('⚠️ Direct Supabase function returned no users');
-          } catch (fallbackErr) {
-            console.error('Direct function fallback failed:', fallbackErr);
-          }
+      // If we received a proper JSON array of users, use it
+      if (Array.isArray(json.users)) {
+        const arr = json.users as AdminUser[];
+        devLog(`✅ Fetched ${arr.length} users`);
+        setUsers(arr);
+        return;
       }
 
-        // If we reach here, we got no users
-        devLog('⚠️ No users data received');
-        setUsers([]);
+      // If we reach here, we got no users
+      devLog('⚠️ No users data received');
+      setUsers([]);
     } catch (error) {
       console.error('Error fetching users:', error);
       toast.error('Failed to load users');
@@ -116,16 +82,11 @@ export const useAdminUsers = () => {
       setUpdating(userId);
       devLog('🔄 Updating user permissions');
 
-      const { data: session } = await supabase.auth.getSession();
-      const token = session.session?.access_token;
-      if (!token) throw new Error('No access token');
-      const resp = await fetch('/api/admin-user-permissions-update', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ userId, adminRole, canSwitchClients, clientId })
+      const { data, error } = await supabase.functions.invoke('update-user-permissions', {
+        body: { userId, adminRole, canSwitchClients, clientId }
       });
-      const json = await resp.json().catch(() => ({}));
-      if (!resp.ok || json?.error) throw new Error(json.error || 'Failed to update user');
+
+      if (error) throw error;
 
       devLog('✅ User permissions updated successfully');
       toast.success('User permissions updated successfully');
@@ -148,24 +109,18 @@ export const useAdminUsers = () => {
       setLoading(true);
       devLog('🔄 Creating user');
       
-      const { data: session } = await supabase.auth.getSession();
-      if (!session.session?.access_token) {
-        throw new Error('No access token available');
-      }
-
-      const resp = await fetch('/api/admin-user-invite', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.session.access_token}` },
-        body: JSON.stringify({
+      const { data, error } = await supabase.functions.invoke('create-user-with-permissions', {
+        body: {
           email: input.email,
-            adminRole: input.adminRole,
-            clientId: input.clientId,
-            canSwitchClients: input.canSwitchClients || false,
-            activeClientId: input.activeClientId || input.clientId
-        })
+          adminRole: input.adminRole,
+          clientId: input.clientId,
+          canSwitchClients: input.canSwitchClients || false,
+          activeClientId: input.activeClientId || input.clientId
+        }
       });
-      const data = await resp.json().catch(() => ({}));
-      if (!resp.ok || !data?.success) {
+
+      if (error) throw error;
+      if (!data?.success) {
         throw new Error(data?.message || data?.error || 'Failed to create user');
       }
 
@@ -186,16 +141,13 @@ export const useAdminUsers = () => {
     try {
       setLoading(true);
       devLog('🔄 Creating user with password');
-      const { data: session } = await supabase.auth.getSession();
-      const token = session.session?.access_token;
-      if (!token) throw new Error('No access token');
-      const resp = await fetch('/api/admin-create-user', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify(input),
+      
+      const { data, error } = await supabase.functions.invoke('admin-create-user', {
+        body: input
       });
-      const data = await resp.json().catch(() => ({} as Record<string, unknown>));
-      if (!resp.ok || !data?.ok) {
+
+      if (error) throw error;
+      if (!data?.ok) {
         const message = (data && (data.error || data.message)) || 'Failed to create user';
         throw new Error(message);
       }

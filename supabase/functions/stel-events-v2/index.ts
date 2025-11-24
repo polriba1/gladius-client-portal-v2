@@ -1,16 +1,16 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-requested-with, x-supabase-auth",
+  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+}
+
 console.log("STEL Events V2 function loaded")
 
 serve(async (req: Request) => {
-  const corsHeaders = {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-requested-with, x-supabase-auth",
-    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-  }
-
+  // Handle CORS preflight requests
   if (req.method === "OPTIONS") {
-    console.log("Handling OPTIONS preflight request")
     return new Response("ok", { headers: corsHeaders, status: 200 })
   }
 
@@ -31,7 +31,7 @@ serve(async (req: Request) => {
         utcLastModificationDate = body.utcLastModificationDate || ""
         console.log(`Request body: limit=${limit}, utcLastModificationDate=${utcLastModificationDate}`)
       } catch (_e) {
-        console.log("No JSON body received, using defaults")
+        console.log("No JSON body received or invalid JSON, using defaults")
       }
     }
 

@@ -386,35 +386,18 @@ const Calendario = () => {
     console.log('📡 fetchAndSetIncidentTypes called');
     const map = new Map<number, StelIncidentType>();
     try {
-      if (import.meta.env.DEV) {
-        const proxyUrl = `/api/stel/app/incidentTypes?limit=500`;
-        const response = await fetch(proxyUrl, {
-          headers: { APIKEY: import.meta.env.VITE_STEL_API_KEY },
+      const { data: incidentTypesData, error: incidentTypesError } = await supabase.functions.invoke('stel-incident-types-v2', {
+        body: { limit: '500' },
+      });
+      if (incidentTypesError) throw incidentTypesError;
+      if (Array.isArray(incidentTypesData)) {
+        incidentTypesData.forEach((t: StelIncidentType) => {
+          if (t && typeof t.id === 'number') map.set(t.id, t);
         });
-        if (response.ok) {
-          const allIncidentTypes = (await response.json()) as StelIncidentType[];
-          allIncidentTypes.forEach((t) => {
-            if (t && typeof t.id === 'number') map.set(t.id, t);
-          });
-          setIncidentTypes(map);
-          return map;
-        } else {
-          throw new Error(`Proxy fetch failed: ${response.status}`);
-        }
-      } else {
-        const { data: incidentTypesData, error: incidentTypesError } = await supabase.functions.invoke('stel-incident-types-v2', {
-          body: { limit: '500' },
-        });
-        if (incidentTypesError) throw incidentTypesError;
-        if (Array.isArray(incidentTypesData)) {
-          incidentTypesData.forEach((t: StelIncidentType) => {
-            if (t && typeof t.id === 'number') map.set(t.id, t);
-          });
-          setIncidentTypes(map);
-          return map;
-        }
-        throw new Error('Invalid incidentTypesData');
+        setIncidentTypes(map);
+        return map;
       }
+      throw new Error('Invalid incidentTypesData');
     } catch (error) {
       console.warn('⚠️ fetchAndSetIncidentTypes error:', error);
       throw error;
@@ -426,35 +409,18 @@ const Calendario = () => {
     console.log('📡 fetchAndSetIncidentStates called');
     const map = new Map<number, StelIncidentState>();
     try {
-      if (import.meta.env.DEV) {
-        const proxyUrl = `/api/stel/app/incidentStates?limit=500`;
-        const response = await fetch(proxyUrl, {
-          headers: { APIKEY: import.meta.env.VITE_STEL_API_KEY },
+      const { data: incidentStatesData, error: incidentStatesError } = await supabase.functions.invoke('stel-incident-states-v2', {
+        body: { limit: '500' },
+      });
+      if (incidentStatesError) throw incidentStatesError;
+      if (Array.isArray(incidentStatesData)) {
+        incidentStatesData.forEach((s: StelIncidentState) => {
+          if (s && typeof s.id === 'number') map.set(s.id, s);
         });
-        if (response.ok) {
-          const allIncidentStates = (await response.json()) as StelIncidentState[];
-          allIncidentStates.forEach((s) => {
-            if (s && typeof s.id === 'number') map.set(s.id, s);
-          });
-          setIncidentStates(map);
-          return map;
-        } else {
-          throw new Error(`Proxy fetch failed: ${response.status}`);
-        }
-      } else {
-        const { data: incidentStatesData, error: incidentStatesError } = await supabase.functions.invoke('stel-incident-states-v2', {
-          body: { limit: '500' },
-        });
-        if (incidentStatesError) throw incidentStatesError;
-        if (Array.isArray(incidentStatesData)) {
-          incidentStatesData.forEach((s: StelIncidentState) => {
-            if (s && typeof s.id === 'number') map.set(s.id, s);
-          });
-          setIncidentStates(map);
-          return map;
-        }
-        throw new Error('Invalid incidentStatesData');
+        setIncidentStates(map);
+        return map;
       }
+      throw new Error('Invalid incidentStatesData');
     } catch (error) {
       console.warn('⚠️ fetchAndSetIncidentStates error:', error);
       throw error;
@@ -679,80 +645,7 @@ const Calendario = () => {
     try {
       console.log(`🔍 Fetching client info for ID: ${clientId}`);
       
-      if (import.meta.env.DEV) {
-        console.log('✅ DEV MODE: Using Vite proxy');
-        // DEV: use Vite proxy
-        // Try 1: Regular clients endpoint - GET /app/clients/{ID}
-        let clientUrl = `/api/stel/app/clients/${clientId}`;
-        console.log(`📡 [1/2] Trying clients endpoint: ${clientUrl}`);
-        
-        let response = await fetch(clientUrl, {
-          headers: {
-            'APIKEY': import.meta.env.VITE_STEL_API_KEY,
-          },
-        });
-        
-        let clientData = null;
-        let client = null;
-        
-        // If clients endpoint succeeds, parse the response
-        if (response.ok) {
-          clientData = await response.json();
-          console.log(`✅ Clients endpoint SUCCESS (${response.status}):`, {
-            isArray: Array.isArray(clientData),
-            dataType: typeof clientData,
-            hasId: clientData?.id,
-            data: clientData
-          });
-          
-          // Handle both array and object responses
-          client = Array.isArray(clientData) ? clientData[0] : clientData;
-          
-          // Validate that we got a real client object with an ID
-          if (client && client.id) {
-            console.log(`✅ Found client in /clients: ${client.name || client['legal-name']} (ID: ${client.id})`);
-            return client;
-          }
-        } else {
-          console.warn(`⚠️ Clients endpoint FAILED with status ${response.status}`);
-        }
-        
-        // Try 2: Potential clients endpoint - GET /app/potentialClients/{ID}
-        console.log(`📡 [2/2] Client not found in /clients, trying /potentialClients...`);
-        
-        clientUrl = `/api/stel/app/potentialClients/${clientId}`;
-        console.log(`📡 Trying potentialClients endpoint: ${clientUrl}`);
-        
-        response = await fetch(clientUrl, {
-          headers: {
-            'APIKEY': import.meta.env.VITE_STEL_API_KEY,
-          },
-        });
-        
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error(`❌ PotentialClients endpoint FAILED (${response.status}):`, errorText);
-          throw new Error(`Client ${clientId} not found: /clients returned ${response.status}, /potentialClients returned ${response.status}`);
-        }
-        
-        clientData = await response.json();
-        console.log(`✅ PotentialClients endpoint SUCCESS (${response.status}):`, {
-          isArray: Array.isArray(clientData),
-          dataType: typeof clientData,
-          hasId: clientData?.id,
-          data: clientData
-        });
-        
-        // Handle both array and object responses
-        client = Array.isArray(clientData) ? clientData[0] : clientData;
-        
-        if (!client || !client.id) {
-          throw new Error(`Client ${clientId} not found or has invalid response from potentialClients`);
-        }
-        
-        console.log(`✅ Found client in /potentialClients: ${client.name || client['legal-name']} (ID: ${client.id})`);
-        return client;
-      } else {
+      if (true) {
         // PROD: use Supabase Edge Function
         console.log('🚀 PROD MODE: Using stel-client-v2 Edge Function');
         const { data, error } = await supabase.functions.invoke('stel-client-v2', {
@@ -784,32 +677,7 @@ const Calendario = () => {
     try {
       console.log(`🔍 Fetching employee info for ID: ${employeeId}`);
       
-      if (import.meta.env.DEV) {
-        console.log('✅ DEV MODE: Using Vite proxy');
-        // DEV: use Vite proxy
-        const response = await fetch(`/api/stel/app/employees/${employeeId}`, {
-          headers: {
-            'APIKEY': import.meta.env.VITE_STEL_API_KEY,
-          },
-        });
-        
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error(`❌ Employee API error ${response.status}:`, errorText);
-          throw new Error(`HTTP ${response.status}: ${errorText}`);
-        }
-        
-        const employeeData = await response.json();
-        console.log(`✅ Employee data received:`, employeeData);
-        // API returns an array with one employee
-        const employee = Array.isArray(employeeData) ? employeeData[0] : employeeData;
-        
-        if (!employee) {
-          throw new Error(`Employee ${employeeId} not found in response`);
-        }
-        
-        return employee;
-      } else {
+      if (true) {
         // PROD: use Supabase Edge Function
         console.log('🚀 PROD MODE: Using stel-employee-v2 Edge Function');
         const { data, error } = await supabase.functions.invoke('stel-employee-v2', {
@@ -841,32 +709,7 @@ const Calendario = () => {
     try {
       console.log(`🏠 Fetching address info for ID: ${addressId}`);
       
-      if (import.meta.env.DEV) {
-        console.log('✅ DEV MODE: Using Vite proxy');
-        // DEV: use Vite proxy
-        const response = await fetch(`/api/stel/app/addresses/${addressId}`, {
-          headers: {
-            'APIKEY': import.meta.env.VITE_STEL_API_KEY,
-          },
-        });
-        
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error(`❌ Address API error ${response.status}:`, errorText);
-          throw new Error(`HTTP ${response.status}: ${errorText}`);
-        }
-        
-        const addressData = await response.json();
-        console.log(`✅ Address data received:`, addressData);
-        // API might return an array with one address
-        const address = Array.isArray(addressData) ? addressData[0] : addressData;
-        
-        if (!address) {
-          throw new Error(`Address ${addressId} not found in response`);
-        }
-        
-        return address;
-      } else {
+      if (true) {
         // PROD: use Supabase Edge Function
         console.log('🚀 PROD MODE: Using stel-address-v2 Edge Function');
         const { data, error } = await supabase.functions.invoke('stel-address-v2', {
