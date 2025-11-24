@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -270,19 +270,23 @@ const WhatsAppDialog = ({ schedule, currentDate, onGenerateText, onCopy, copiedT
     setIsOpen(open);
     
     if (open && !data && !isGenerating) {
-      setIsGenerating(true);
-      try {
-        const generatedData = await onGenerateText(schedule.name, schedule.todayEvents, currentDate);
-        setData(generatedData);
-      } catch (error) {
-        console.error('Error generating WhatsApp text:', error);
-        setData({ 
-          all: 'Error al generar el texto. Por favor, intenta de nuevo.', 
-          accepted: 'Error al generar el texto. Por favor, intenta de nuevo.' 
-        });
-      } finally {
-        setIsGenerating(false);
-      }
+      await refreshData();
+    }
+  };
+
+  const refreshData = async () => {
+    setIsGenerating(true);
+    try {
+      const generatedData = await onGenerateText(schedule.name, schedule.todayEvents, currentDate);
+      setData(generatedData);
+    } catch (error) {
+      console.error('Error generating WhatsApp text:', error);
+      setData({ 
+        all: 'Error al generar el texto. Por favor, intenta de nuevo.', 
+        accepted: 'Error al generar el texto. Por favor, intenta de nuevo.' 
+      });
+    } finally {
+      setIsGenerating(false);
     }
   };
 
@@ -309,9 +313,21 @@ const WhatsAppDialog = ({ schedule, currentDate, onGenerateText, onCopy, copiedT
       </DialogTrigger>
       <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <MessageSquare className="h-5 w-5" style={{ color: schedule.color }} />
-            Agenda para {schedule.name}
+          <DialogTitle className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <MessageSquare className="h-5 w-5" style={{ color: schedule.color }} />
+              Agenda para {schedule.name}
+            </div>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={refreshData} 
+              disabled={isGenerating}
+              className="h-8 gap-2"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${isGenerating ? 'animate-spin' : ''}`} />
+              Actualizar
+            </Button>
           </DialogTitle>
           <DialogDescription>
             {isGenerating ? 'Generando texto...' : 'Copia este texto para enviarlo por WhatsApp'}
@@ -374,12 +390,16 @@ const Calendario = () => {
   const [loading, setLoading] = useState(false);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [copiedTech, setCopiedTech] = useState<string | null>(null);
-  const [whatsappTextCache, setWhatsappTextCache] = useState<Map<string, { all: string; accepted: string }>>(new Map());
   const [loadingWhatsapp, setLoadingWhatsapp] = useState<string | null>(null);
   const [incidentTypes, setIncidentTypes] = useState<Map<number, StelIncidentType>>(new Map());
   const [incidentStates, setIncidentStates] = useState<Map<number, StelIncidentState>>(new Map());
   const [allIncidents, setAllIncidents] = useState<StelIncident[]>([]); // Store incidents for WhatsApp
   const [assigneeToTecMap, setAssigneeToTecMap] = useState<Map<number, string>>(new Map()); // Map assignee-id to TEC code
+
+  // Caches for API data to avoid N+1 problem
+  const clientCache = useRef<Map<string, unknown>>(new Map());
+  const employeeCache = useRef<Map<string, unknown>>(new Map());
+  const addressCache = useRef<Map<string, unknown>>(new Map());
 
   // Helper: fetch incident types (DEV via proxy, PROD via edge function) and populate state
   const fetchAndSetIncidentTypes = async () => {
@@ -641,9 +661,15 @@ const Calendario = () => {
   };
 
   // Fetch client info from STEL API
-  const fetchClientInfo = async (clientId: string) => {
+  const fetchClientInfo = async (clientId: string, bypassCache: boolean = false) => {
+    // Check cache first
+    if (!bypassCache && clientCache.current.has(clientId)) {
+      console.log(`⚡ Cache hit for client ${clientId}`);
+      return clientCache.current.get(clientId);
+    }
+
     try {
-      console.log(`🔍 Fetching client info for ID: ${clientId}`);
+      console.log(`🔍 Fetching client info for ID: ${clientId} (bypassCache: ${bypassCache})`);
       
       // PROD: use Supabase Edge Function
       console.log('🚀 PROD MODE: Using stel-client-v2 Edge Function');
@@ -663,6 +689,10 @@ const Calendario = () => {
       }
       
       console.log(`✅ Found client: ${client.name || client['legal-name']} (ID: ${client.id})`);
+      
+      // Store in cache
+      clientCache.current.set(clientId, client);
+      
       return client;
     } catch (error) {
       console.error(`❌ Error fetching client ${clientId}:`, error);
@@ -671,9 +701,15 @@ const Calendario = () => {
   };
 
   // Fetch employee info from STEL API
-  const fetchEmployeeInfo = async (employeeId: string) => {
+  const fetchEmployeeInfo = async (employeeId: string, bypassCache: boolean = false) => {
+    // Check cache first
+    if (!bypassCache && employeeCache.current.has(employeeId)) {
+      console.log(`⚡ Cache hit for employee ${employeeId}`);
+      return employeeCache.current.get(employeeId);
+    }
+
     try {
-      console.log(`🔍 Fetching employee info for ID: ${employeeId}`);
+      console.log(`🔍 Fetching employee info for ID: ${employeeId} (bypassCache: ${bypassCache})`);
       
       // PROD: use Supabase Edge Function
       console.log('🚀 PROD MODE: Using stel-employee-v2 Edge Function');
@@ -693,6 +729,10 @@ const Calendario = () => {
       }
       
       console.log(`✅ Found employee: ${employee.name} ${employee.surname} (ID: ${employee.id})`);
+      
+      // Store in cache
+      employeeCache.current.set(employeeId, employee);
+      
       return employee;
     } catch (error) {
       console.error(`❌ Error fetching employee ${employeeId}:`, error);
@@ -701,9 +741,15 @@ const Calendario = () => {
   };
 
   // Fetch address info from STEL API
-  const fetchAddressInfo = async (addressId: string) => {
+  const fetchAddressInfo = async (addressId: string, bypassCache: boolean = false) => {
+    // Check cache first
+    if (!bypassCache && addressCache.current.has(addressId)) {
+      console.log(`⚡ Cache hit for address ${addressId}`);
+      return addressCache.current.get(addressId);
+    }
+
     try {
-      console.log(`🏠 Fetching address info for ID: ${addressId}`);
+      console.log(`🏠 Fetching address info for ID: ${addressId} (bypassCache: ${bypassCache})`);
       
       // PROD: use Supabase Edge Function
       console.log('🚀 PROD MODE: Using stel-address-v2 Edge Function');
@@ -723,6 +769,10 @@ const Calendario = () => {
       }
       
       console.log(`✅ Found address: ${address['address-data']} (ID: ${address.id})`);
+      
+      // Store in cache
+      addressCache.current.set(addressId, address);
+      
       return address;
     } catch (error) {
       console.error(`❌ Error fetching address ${addressId}:`, error);
@@ -732,13 +782,15 @@ const Calendario = () => {
 
   // Generate WhatsApp formatted text for technician's day
   // IMPORTANT: Always use incidents (ruta antiga) to construct WhatsApp text, even if calendar shows events
-  const generateWhatsAppText = async (technicianName: string, events: CalendarEvent[], date: Date) => {
+  const generateWhatsAppText = async (technicianName: string, events: CalendarEvent[], date: Date, incidents?: StelIncident[], assigneeMapOverride?: Map<number, string>) => {
     console.log(`📱 ========================================`);
     console.log(`📱 Generating WhatsApp text for ${technicianName}`);
     console.log(`📱 Date: ${moment(date).format('YYYY-MM-DD HH:mm:ss')}`);
     console.log(`📱 Total incidents loaded: ${allIncidents.length}`);
-    console.log(`📱 AssigneeToTecMap size: ${assigneeToTecMap.size}`);
-    console.log(`📱 AssigneeToTecMap entries:`, Array.from(assigneeToTecMap.entries()));
+    
+    let mapToUse = assigneeMapOverride || assigneeToTecMap;
+    console.log(`📱 AssigneeMap size: ${mapToUse.size}`);
+    console.log(`📱 AssigneeMap entries:`, Array.from(mapToUse.entries()));
 
     // If incident types haven't been loaded yet, fetch them on-demand (robustness guard)
     if (incidentTypes.size === 0) {
@@ -763,14 +815,20 @@ const Calendario = () => {
     }
 
     // Check if we have incidents in state, if not try to fetch them on-demand
-    let currentIncidents = allIncidents;
+    let currentIncidents = incidents || allIncidents;
     if (currentIncidents.length === 0) {
       console.log('⚠️ No incidents found in state - attempting to fetch on-demand...');
       try {
-        const fetched = await fetchIncidents();
-        if (fetched && fetched.length > 0) {
-          currentIncidents = fetched;
-          console.log(`✅ Fetched ${fetched.length} incidents on-demand`);
+        const fetchedData = await fetchIncidents();
+        if (fetchedData && fetchedData.incidents && fetchedData.incidents.length > 0) {
+          currentIncidents = fetchedData.incidents;
+          console.log(`✅ Fetched ${fetchedData.incidents.length} incidents on-demand`);
+          
+          // If we fetched fresh data and don't have an override, use the fresh map
+          if (!assigneeMapOverride && fetchedData.assigneeMap) {
+             mapToUse = fetchedData.assigneeMap;
+             console.log(`✅ Using fresh assignee map from fetch (${mapToUse.size} entries)`);
+          }
         } else {
           console.log('⚠️ On-demand fetch returned no incidents');
         }
@@ -832,11 +890,11 @@ const Calendario = () => {
       }
       
       // Step 5: Check EXACT technician match
-      const incidentTecCode = assigneeToTecMap.get(incident['assignee-id']);
+      const incidentTecCode = mapToUse.get(incident['assignee-id']);
       if (!incidentTecCode) {
         console.log(`⚠️ Incident ${incident.id}: No TEC code found for assignee-id ${incident['assignee-id']}`);
-        console.log(`   Available assignee-ids in map:`, Array.from(assigneeToTecMap.keys()));
-        console.log(`   Map entries:`, Array.from(assigneeToTecMap.entries()));
+        console.log(`   Available assignee-ids in map:`, Array.from(mapToUse.keys()));
+        console.log(`   Map entries:`, Array.from(mapToUse.entries()));
         return false;
       }
       
@@ -920,13 +978,13 @@ const Calendario = () => {
     const sortedEvents = [...validEventsForWhatsApp].sort((a, b) => {
       const timeA = a.start.getTime();
       const timeB = b.start.getTime();
-      console.log(`🕐 Sorting: Event ${a.resource?.reference} (${moment(a.start).format('HH:mm')}) vs Event ${b.resource?.reference} (${moment(b.start).format('HH:mm')})`);
+      console.log(`🕐 Sorting: Event ${(a.resource as any)?.reference} (${moment(a.start).format('HH:mm')}) vs Event ${(b.resource as any)?.reference} (${moment(b.start).format('HH:mm')})`);
       return timeA - timeB;
     });
     
     console.log(`🕐 SORTED ORDER:`);
     sortedEvents.forEach((e, idx) => {
-      console.log(`   ${idx + 1}. ${e.resource?.reference} - ${moment(e.start).format('HH:mm')}`);
+      console.log(`   ${idx + 1}. ${(e.resource as any)?.reference} - ${moment(e.start).format('HH:mm')}`);
     });
 
     const dateStr = moment(date).format('dddd, D [de] MMMM [de] YYYY');
@@ -963,7 +1021,8 @@ const Calendario = () => {
       }
       
       try {
-        const client = await fetchClientInfo(clientId);
+        // Bypass cache for WhatsApp generation to ensure fresh data
+        const client = await fetchClientInfo(clientId, true);
         console.log(`✅ Successfully fetched client ${clientId}:`, client?.name || client?.['legal-name']);
         return client;
       } catch (error) {
@@ -988,7 +1047,8 @@ const Calendario = () => {
         return null;
       }
       try {
-        return await fetchAddressInfo(addressId);
+        // Bypass cache for WhatsApp generation to ensure fresh data
+        return await fetchAddressInfo(addressId, true);
       } catch (error) {
         console.error(`❌ Failed to fetch address ${addressId}:`, error);
         return null;
@@ -1189,42 +1249,24 @@ const Calendario = () => {
     console.log(`📅 Original date: ${moment(date).format('YYYY-MM-DD HH:mm:ss')}`);
     console.log(`📅 Normalized date: ${moment(normalizedDate).format('YYYY-MM-DD HH:mm:ss')}`);
     
-    // Check cache first
-    if (whatsappTextCache.has(cacheKey)) {
-      console.log(`✅ Using cached WhatsApp text for ${cacheKey}`);
-      console.log(`📊 Current cache size: ${whatsappTextCache.size}`);
-      return whatsappTextCache.get(cacheKey)!;
-    }
-
-    console.log(`🔄 Generating NEW WhatsApp text for ${cacheKey} (not in cache)`);
+    console.log(`🔄 Generating NEW WhatsApp text for ${cacheKey} (ALWAYS FRESH)`);
     
     // Generate new text - use normalized date
     setLoadingWhatsapp(technicianName);
     try {
-      const text = await generateWhatsAppText(technicianName, events, normalizedDate);
+      // Force fetch incidents for the current date to ensure we have the latest data
+      // This fixes the issue where incidents might be stale or missing if the user navigated to a different date
+      console.log('🔄 Force fetching incidents before generating WhatsApp...');
+      const result = await fetchIncidents(false);
+      const freshIncidents = result?.incidents || [];
+      const assigneeMap = result?.assigneeMap;
       
-      // Cache the result
-      console.log(`💾 Caching WhatsApp text for ${cacheKey}`);
-      setWhatsappTextCache(prev => {
-        const newCache = new Map(prev);
-        newCache.set(cacheKey, text);
-        console.log(`📊 Cache updated - new size: ${newCache.size}`);
-        return newCache;
-      });
-      
+      const text = await generateWhatsAppText(technicianName, events, normalizedDate, freshIncidents, assigneeMap);
       return text;
     } finally {
       setLoadingWhatsapp(null);
     }
   };
-
-  // Clear WhatsApp cache when date changes to force regeneration - CRITICAL FOR SAFETY
-  useEffect(() => {
-    const dateStr = moment(currentDate).format('DD/MM/YYYY');
-    console.log(`🚨 CRITICAL: Date changed to ${dateStr} - FORCE CLEARING WhatsApp cache for safety!`);
-    setWhatsappTextCache(new Map());
-    console.log(`🚨 Cache cleared successfully`);
-  }, [currentDate]);
 
   useEffect(() => {
     let mounted = true;
@@ -1269,7 +1311,9 @@ const Calendario = () => {
     console.log('🚀 fetchIncidents called - LOADING INCIDENTS (NOT EVENTS)!');
     if (shouldSetLoading) setLoading(true);
     try {
-      const today = new Date();
+      // Use currentDate (selected date) instead of new Date() (today)
+      // This ensures we fetch incidents around the date the user is looking at
+      const today = currentDate || new Date();
       const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
       const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
 
@@ -1326,60 +1370,50 @@ const Calendario = () => {
         console.log(`🔍 Fetching ${uniqueAssigneeIds.length} unique assignees...`);
 
         // Fetch employee data for all assignees
-        const assigneeMap = new Map<number, string>(); // employeeId -> TEC code
+        // Initialize with existing map to preserve previously loaded technicians if fetch fails
+        const assigneeMap = new Map<number, string>(assigneeToTecMap); 
         
-        for (const employeeId of uniqueAssigneeIds) {
-          try {
-            let employee = null;
-            
-            if (import.meta.env.DEV) {
-              // DEV: use Vite proxy
-              const employeeUrl = `/api/stel/app/employees/${employeeId}`;
-              const response = await fetch(employeeUrl, {
-                headers: {
-                  APIKEY: import.meta.env.VITE_STEL_API_KEY,
-                },
-              });
-              
-              if (response.ok) {
-                const employeeData = await response.json();
-                employee = Array.isArray(employeeData) ? employeeData[0] : employeeData;
-              } else if (response.status === 404) {
-                console.warn(`⚠️ Employee ${employeeId} not found (404)`);
-                continue;
-              }
-            } else {
-              // PROD: use Edge Function
-              const { data, error } = await supabase.functions.invoke('stel-employee-v2', {
-                body: { employeeId: String(employeeId) }
-              });
-              
-              if (error) {
-                console.warn(`⚠️ Edge function error fetching employee ${employeeId}:`, error);
-                continue;
-              }
-              
-              if (data) {
-                employee = data;
-              }
-            }
-            
-            if (employee) {
-              console.log(`👤 Employee ${employeeId}:`, employee);
-              
-              // Employee.name contains "TEC095 " or similar
-              const techMatch = employee?.name?.match(/TEC\s*(\d+)/i);
-              if (techMatch) {
-                const normalizedTech = `TEC${String(techMatch[1]).padStart(3, '0')}`;
-                assigneeMap.set(employeeId, normalizedTech);
-                console.log(`✅ Mapped employee ${employeeId} to ${normalizedTech}`);
-              } else {
-                console.warn(`⚠️ Employee ${employeeId} has no TEC in name: "${employee?.name}"`);
-              }
-            }
-          } catch (error) {
-            console.warn(`⚠️ Exception fetching employee ${employeeId}:`, error);
+        console.log(`🔍 Fetching ${uniqueAssigneeIds.length} unique assignees in parallel (with concurrency limit)...`);
+
+        // Helper for concurrency control
+        const chunkArray = <T,>(array: T[], size: number): T[][] => {
+          const chunked: T[][] = [];
+          for (let i = 0; i < array.length; i += size) {
+            chunked.push(array.slice(i, i + size));
           }
+          return chunked;
+        };
+
+        // Process in chunks of 5 to avoid rate limits
+        const chunks = chunkArray(uniqueAssigneeIds, 5);
+        
+        for (const chunk of chunks) {
+          await Promise.all(chunk.map(async (employeeId) => {
+            try {
+              // If we already have it in the NEW map (from previous state), we can skip if we want, 
+              // but for robustness we try to fetch again if it's not in cache.
+              // However, fetchEmployeeInfo handles caching internally.
+              const employee = await fetchEmployeeInfo(String(employeeId));
+              
+              if (employee) {
+                // Employee.name contains "TEC095 " or similar
+                const techMatch = employee?.name?.match(/TEC\s*(\d+)/i);
+                if (techMatch) {
+                  const normalizedTech = `TEC${String(techMatch[1]).padStart(3, '0')}`;
+                  assigneeMap.set(employeeId, normalizedTech);
+                  console.log(`✅ Mapped employee ${employeeId} to ${normalizedTech}`);
+                } else {
+                  console.warn(`⚠️ Employee ${employeeId} has no TEC in name: "${employee?.name}"`);
+                }
+              }
+            } catch (error) {
+              console.warn(`⚠️ Exception fetching employee ${employeeId}:`, error);
+              // If failed, we rely on existing entry in assigneeMap (from initialization)
+            }
+          }));
+          
+          // Small delay between chunks to be nice to the API
+          if (chunks.length > 1) await new Promise(resolve => setTimeout(resolve, 100));
         }
 
         console.log(`✅ Fetched ${assigneeMap.size} assignees with TEC codes`);
@@ -1479,14 +1513,14 @@ const Calendario = () => {
         }
 
         console.log('✅ Incidents fetched and processed for WhatsApp integration (not updating calendar view)');
-        return validIncidents;
+        return { incidents: validIncidents, assigneeMap };
       };
 
       if (import.meta.env.DEV) {
         console.log('✅ Running in DEV mode, using Vite proxy');
         try {
           // Fetch incidents from 1 month before AND 1 month ahead (2 months total)
-          const oneMonthAgo = new Date();
+          const oneMonthAgo = new Date(today);
           oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
           const utcLastModificationDate = oneMonthAgo.toISOString().replace(/\.\d{3}Z$/, '+0000');
           
@@ -1511,9 +1545,9 @@ const Calendario = () => {
           console.log(`✅ Total incidents fetched: ${allIncidents.length}`);
           
           // Filter: not deleted AND incident date between 1 month ago and 1 month ahead
-          const oneMonthAgoDate = new Date();
+          const oneMonthAgoDate = new Date(today);
           oneMonthAgoDate.setMonth(oneMonthAgoDate.getMonth() - 1);
-          const oneMonthAheadDate = new Date();
+          const oneMonthAheadDate = new Date(today);
           oneMonthAheadDate.setMonth(oneMonthAheadDate.getMonth() + 1);
           
           const validIncidents = allIncidents.filter((incident) => {
@@ -1560,7 +1594,7 @@ const Calendario = () => {
         console.log('🚀 PROD MODE: Using stel-incidents-v2 Edge Function');
         
         try {
-          const oneMonthAgo = new Date();
+          const oneMonthAgo = new Date(today);
           oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
           const utcLastModificationDate = oneMonthAgo.toISOString().replace(/\.\d{3}Z$/, '+0000');
           
@@ -1582,9 +1616,9 @@ const Calendario = () => {
           console.log(`✅ Total incidents fetched: ${allIncidents.length}`);
           
           // Filter: not deleted AND incident date between 1 month ago and 1 month ahead
-          const oneMonthAgoDate = new Date();
+          const oneMonthAgoDate = new Date(today);
           oneMonthAgoDate.setMonth(oneMonthAgoDate.getMonth() - 1);
-          const oneMonthAheadDate = new Date();
+          const oneMonthAheadDate = new Date(today);
           oneMonthAheadDate.setMonth(oneMonthAheadDate.getMonth() + 1);
           
           const validIncidents = allIncidents.filter((incident) => {
@@ -1915,8 +1949,8 @@ const Calendario = () => {
         }
       }
 
-      // Also fetch incidents for WhatsApp logic
-      await fetchIncidents(false).catch(e => console.warn('⚠️ fetchIncidents failed:', e));
+      // REMOVED: Automatic incident fetching. Now incidents are only fetched on-demand when generating WhatsApp.
+      // await fetchIncidents(false).catch(e => console.warn('⚠️ fetchIncidents failed:', e));
 
     } catch (error) {
       console.error('Error fetching events:', error);
@@ -2244,7 +2278,7 @@ const Calendario = () => {
                             }}
                             components={{
                               event: ({ event }: { event: CalendarEvent }) => {
-                                const resource = event.resource as Record<string, unknown>;
+                                const resource = event.resource as unknown as Record<string, unknown>;
                                 const fullReference = resource?.['full-reference'] as string | undefined;
                                 const reference = resource?.reference as string | undefined;
                                 
