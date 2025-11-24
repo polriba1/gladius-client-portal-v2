@@ -978,13 +978,13 @@ const Calendario = () => {
     const sortedEvents = [...validEventsForWhatsApp].sort((a, b) => {
       const timeA = a.start.getTime();
       const timeB = b.start.getTime();
-      console.log(`🕐 Sorting: Event ${(a.resource as any)?.reference} (${moment(a.start).format('HH:mm')}) vs Event ${(b.resource as any)?.reference} (${moment(b.start).format('HH:mm')})`);
+      console.log(`🕐 Sorting: Event ${(a.resource as StelIncident)?.reference} (${moment(a.start).format('HH:mm')}) vs Event ${(b.resource as StelIncident)?.reference} (${moment(b.start).format('HH:mm')})`);
       return timeA - timeB;
     });
     
     console.log(`🕐 SORTED ORDER:`);
     sortedEvents.forEach((e, idx) => {
-      console.log(`   ${idx + 1}. ${(e.resource as any)?.reference} - ${moment(e.start).format('HH:mm')}`);
+      console.log(`   ${idx + 1}. ${(e.resource as StelIncident)?.reference} - ${moment(e.start).format('HH:mm')}`);
     });
 
     const dateStr = moment(date).format('dddd, D [de] MMMM [de] YYYY');
