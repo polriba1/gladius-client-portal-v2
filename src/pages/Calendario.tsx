@@ -645,27 +645,25 @@ const Calendario = () => {
     try {
       console.log(`🔍 Fetching client info for ID: ${clientId}`);
       
-      if (true) {
-        // PROD: use Supabase Edge Function
-        console.log('🚀 PROD MODE: Using stel-client-v2 Edge Function');
-        const { data, error } = await supabase.functions.invoke('stel-client-v2', {
-          body: { clientId },
-        });
-        
-        if (error) {
-          console.error(`❌ Edge function error:`, error);
-          throw error;
-        }
-        
-        const client = Array.isArray(data) ? data[0] : data;
-        
-        if (!client || !client.id) {
-          throw new Error(`Client ${clientId} not found or invalid response`);
-        }
-        
-        console.log(`✅ Found client: ${client.name || client['legal-name']} (ID: ${client.id})`);
-        return client;
+      // PROD: use Supabase Edge Function
+      console.log('🚀 PROD MODE: Using stel-client-v2 Edge Function');
+      const { data, error } = await supabase.functions.invoke('stel-client-v2', {
+        body: { clientId },
+      });
+      
+      if (error) {
+        console.error(`❌ Edge function error:`, error);
+        throw error;
       }
+      
+      const client = Array.isArray(data) ? data[0] : data;
+      
+      if (!client || !client.id) {
+        throw new Error(`Client ${clientId} not found or invalid response`);
+      }
+      
+      console.log(`✅ Found client: ${client.name || client['legal-name']} (ID: ${client.id})`);
+      return client;
     } catch (error) {
       console.error(`❌ Error fetching client ${clientId}:`, error);
       throw error; // Re-throw to propagate the error
@@ -677,27 +675,25 @@ const Calendario = () => {
     try {
       console.log(`🔍 Fetching employee info for ID: ${employeeId}`);
       
-      if (true) {
-        // PROD: use Supabase Edge Function
-        console.log('🚀 PROD MODE: Using stel-employee-v2 Edge Function');
-        const { data, error } = await supabase.functions.invoke('stel-employee-v2', {
-          body: { employeeId },
-        });
-        
-        if (error) {
-          console.error(`❌ Edge function error:`, error);
-          throw error;
-        }
-        
-        const employee = Array.isArray(data) ? data[0] : data;
-        
-        if (!employee || !employee.id) {
-          throw new Error(`Employee ${employeeId} not found or invalid response`);
-        }
-        
-        console.log(`✅ Found employee: ${employee.name} ${employee.surname} (ID: ${employee.id})`);
-        return employee;
+      // PROD: use Supabase Edge Function
+      console.log('🚀 PROD MODE: Using stel-employee-v2 Edge Function');
+      const { data, error } = await supabase.functions.invoke('stel-employee-v2', {
+        body: { employeeId },
+      });
+      
+      if (error) {
+        console.error(`❌ Edge function error:`, error);
+        throw error;
       }
+      
+      const employee = Array.isArray(data) ? data[0] : data;
+      
+      if (!employee || !employee.id) {
+        throw new Error(`Employee ${employeeId} not found or invalid response`);
+      }
+      
+      console.log(`✅ Found employee: ${employee.name} ${employee.surname} (ID: ${employee.id})`);
+      return employee;
     } catch (error) {
       console.error(`❌ Error fetching employee ${employeeId}:`, error);
       throw error; // Re-throw to propagate the error
@@ -709,27 +705,25 @@ const Calendario = () => {
     try {
       console.log(`🏠 Fetching address info for ID: ${addressId}`);
       
-      if (true) {
-        // PROD: use Supabase Edge Function
-        console.log('🚀 PROD MODE: Using stel-address-v2 Edge Function');
-        const { data, error } = await supabase.functions.invoke('stel-address-v2', {
-          body: { addressId },
-        });
-        
-        if (error) {
-          console.error(`❌ Edge function error:`, error);
-          throw error;
-        }
-        
-        const address = Array.isArray(data) ? data[0] : data;
-        
-        if (!address || !address.id) {
-          throw new Error(`Address ${addressId} not found or invalid response`);
-        }
-        
-        console.log(`✅ Found address: ${address['address-data']} (ID: ${address.id})`);
-        return address;
+      // PROD: use Supabase Edge Function
+      console.log('🚀 PROD MODE: Using stel-address-v2 Edge Function');
+      const { data, error } = await supabase.functions.invoke('stel-address-v2', {
+        body: { addressId },
+      });
+      
+      if (error) {
+        console.error(`❌ Edge function error:`, error);
+        throw error;
       }
+      
+      const address = Array.isArray(data) ? data[0] : data;
+      
+      if (!address || !address.id) {
+        throw new Error(`Address ${addressId} not found or invalid response`);
+      }
+      
+      console.log(`✅ Found address: ${address['address-data']} (ID: ${address.id})`);
+      return address;
     } catch (error) {
       console.error(`❌ Error fetching address ${addressId}:`, error);
       throw error;
