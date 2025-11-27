@@ -1,47 +1,44 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 
-console.log("STEL Event Types V2 function loaded")
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-requested-with, x-supabase-auth",
+  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+}
+
+console.log("STEL Event Types V3 (Paginated) function loaded")
 
 serve(async (req: Request) => {
-  const corsHeaders = {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-requested-with, x-supabase-auth",
-    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-  }
-
   if (req.method === "OPTIONS") {
-    console.log("Handling OPTIONS preflight request")
     return new Response("ok", { headers: corsHeaders, status: 200 })
   }
 
   try {
     const stelApiKey = Deno.env.get("STEL_API_KEY")
     if (!stelApiKey) {
-      console.error("STEL_API_KEY not set")
       throw new Error("STEL_API_KEY not set")
     }
 
     let limit = "500"
-
+    
     if (req.method === "POST") {
       try {
         const body = await req.json()
         limit = body.limit || "500"
-        console.log(`Request body: limit=${limit}`)
       } catch (_e) {
-        console.log("No JSON body received, using defaults")
+        console.log("No JSON body received or invalid JSON, using defaults")
       }
     }
 
-    console.log(`Fetching all event types with pagination (limit=${limit})`)
+    console.log(`Fetching event types with pagination (limit=${limit})`)
 
     let allEventTypes: unknown[] = []
-    let offset = 0
+    let start = 0
     let hasMore = true
     const batchSize = parseInt(limit) || 500
 
     while (hasMore) {
-      const apiUrl = `https://app.stelorder.com/app/eventTypes?limit=${batchSize}&offset=${offset}`
+      const apiUrl = `https://app.stelorder.com/app/eventTypes?limit=${batchSize}&start=${start}`
       console.log(`Calling STEL API: ${apiUrl}`)
 
       const response = await fetch(apiUrl, {
@@ -67,9 +64,8 @@ serve(async (req: Request) => {
       if (batch.length < batchSize) {
         hasMore = false
       } else {
-        offset += batchSize
-        // Safety break to avoid infinite loops if API is weird
-        if (offset > 10000) {
+        start += batchSize
+        if (start > 10000) {
           console.warn("Safety break: exceeded 10000 event types")
           hasMore = false
         }
@@ -82,11 +78,10 @@ serve(async (req: Request) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     })
   } catch (error) {
-    console.error("Error in stel-event-types-v2:", error)
+    console.error("Error in stel-event-types-v3:", error)
     return new Response(
       JSON.stringify({ error: error instanceof Error ? error.message : "Error" }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     )
   }
 })
-

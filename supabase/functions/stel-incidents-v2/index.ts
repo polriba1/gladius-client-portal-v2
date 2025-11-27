@@ -42,33 +42,52 @@ serve(async (req: Request) => {
       utcLastModificationDate = oneMonthAgo.toISOString().replace(/\.\d{3}Z$/, '+0000')
     }
 
-    console.log(`Fetching incidents with limit=${limit}, utc-last-modification-date=${utcLastModificationDate}`)
+    console.log(`Fetching incidents with pagination (limit=${limit}, utc-last-modification-date=${utcLastModificationDate})`)
 
-    const apiUrl = `https://app.stelorder.com/app/incidents?limit=${limit}&utc-last-modification-date=${encodeURIComponent(utcLastModificationDate)}`
+    let allIncidents: unknown[] = []
+    let offset = 0
+    let hasMore = true
+    const batchSize = parseInt(limit) || 500
 
-    console.log(`Calling STEL API: ${apiUrl}`)
+    while (hasMore) {
+      const apiUrl = `https://app.stelorder.com/app/incidents?limit=${batchSize}&offset=${offset}&utc-last-modification-date=${encodeURIComponent(utcLastModificationDate)}`
+      console.log(`Calling STEL API: ${apiUrl}`)
 
-    const response = await fetch(apiUrl, {
-      headers: { APIKEY: stelApiKey },
-    })
-
-    if (!response.ok) {
-      const errorText = await response.text()
-      console.error(`STEL API error ${response.status}: ${errorText}`)
-      throw new Error(`API error: ${response.status}`)
-    }
-
-    const incidents = await response.json()
-    console.log(`Total incidents fetched: ${Array.isArray(incidents) ? incidents.length : 'NOT AN ARRAY'}`)
-
-    if (!Array.isArray(incidents)) {
-      console.error(`ERROR: Response is not an array, it's a ${typeof incidents}`)
-      return new Response(JSON.stringify([]), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      const response = await fetch(apiUrl, {
+        headers: { APIKEY: stelApiKey },
       })
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error(`STEL API error ${response.status}: ${errorText}`)
+        throw new Error(`API error: ${response.status}`)
+      }
+
+      const batch = await response.json()
+      
+      if (!Array.isArray(batch)) {
+        console.error(`ERROR: Response is not an array, it's a ${typeof batch}`)
+        break
+      }
+
+      console.log(`Fetched batch of ${batch.length} incidents`)
+      allIncidents = [...allIncidents, ...batch]
+
+      if (batch.length < batchSize) {
+        hasMore = false
+      } else {
+        offset += batchSize
+        // Safety break to avoid infinite loops
+        if (offset > 10000) {
+          console.warn("Safety break: exceeded 10000 incidents")
+          hasMore = false
+        }
+      }
     }
 
-    return new Response(JSON.stringify(incidents), {
+    console.log(`Total incidents fetched: ${allIncidents.length}`)
+
+    return new Response(JSON.stringify(allIncidents), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     })
   } catch (error) {

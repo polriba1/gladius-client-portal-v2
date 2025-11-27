@@ -406,7 +406,7 @@ const Calendario = () => {
     console.log('📡 fetchAndSetIncidentTypes called');
     const map = new Map<number, StelIncidentType>();
     try {
-      const { data: incidentTypesData, error: incidentTypesError } = await supabase.functions.invoke('stel-incident-types-v2', {
+      const { data: incidentTypesData, error: incidentTypesError } = await supabase.functions.invoke('stel-incident-types-v3', {
         body: { limit: '500' },
       });
       if (incidentTypesError) throw incidentTypesError;
@@ -429,7 +429,7 @@ const Calendario = () => {
     console.log('📡 fetchAndSetIncidentStates called');
     const map = new Map<number, StelIncidentState>();
     try {
-      const { data: incidentStatesData, error: incidentStatesError } = await supabase.functions.invoke('stel-incident-states-v2', {
+      const { data: incidentStatesData, error: incidentStatesError } = await supabase.functions.invoke('stel-incident-states-v3', {
         body: { limit: '500' },
       });
       if (incidentStatesError) throw incidentStatesError;
@@ -793,22 +793,30 @@ const Calendario = () => {
     console.log(`📱 AssigneeMap entries:`, Array.from(mapToUse.entries()));
 
     // If incident types haven't been loaded yet, fetch them on-demand (robustness guard)
-    if (incidentTypes.size === 0) {
+    let currentIncidentTypes = incidentTypes;
+    if (currentIncidentTypes.size === 0) {
       console.log('📡 incidentTypes Map empty — fetching incident types on-demand...');
       try {
-        await fetchAndSetIncidentTypes();
-        console.log(`📡 Fetched incident types on-demand: ${incidentTypes.size}`);
+        const fetchedMap = await fetchAndSetIncidentTypes();
+        if (fetchedMap && fetchedMap.size > 0) {
+          currentIncidentTypes = fetchedMap;
+          console.log(`📡 Fetched incident types on-demand: ${fetchedMap.size}`);
+        }
       } catch (e) {
         console.warn('⚠️ Failed to fetch incident types on-demand:', e);
       }
     }
 
     // If incident states haven't been loaded yet, fetch them on-demand
-    if (incidentStates.size === 0) {
+    let currentIncidentStates = incidentStates;
+    if (currentIncidentStates.size === 0) {
       console.log('📡 incidentStates Map empty — fetching incident states on-demand...');
       try {
-        await fetchAndSetIncidentStates();
-        console.log(`📡 Fetched incident states on-demand: ${incidentStates.size}`);
+        const fetchedMap = await fetchAndSetIncidentStates();
+        if (fetchedMap && fetchedMap.size > 0) {
+          currentIncidentStates = fetchedMap;
+          console.log(`📡 Fetched incident states on-demand: ${fetchedMap.size}`);
+        }
       } catch (e) {
         console.warn('⚠️ Failed to fetch incident states on-demand:', e);
       }
@@ -842,8 +850,31 @@ const Calendario = () => {
     console.log(`📅 Target date (EXACT): ${targetDateStr}`);
     console.log(`👤 Target technician (EXACT): ${technicianName}`);
     
+    // NEW: Create a Set of incident IDs from the events to whitelist them
+    // If an incident is linked to an event on this day, we include it regardless of its internal date
+    const eventIncidentIds = new Set(
+      events
+        .map(e => {
+          const r = e.resource as any;
+          // Check both incident-id and incident-path
+          let id = r['incident-id'];
+          if (!id && r['incident-path']) {
+             const match = r['incident-path'].match(/\/(\d+)$/);
+             if (match) id = parseInt(match[1]);
+          }
+          return id;
+        })
+        .filter(id => typeof id === 'number')
+    );
+    console.log(`🔓 Whitelisted Incident IDs from events:`, Array.from(eventIncidentIds));
+    
     // Get all incidents for this EXACT technician and EXACT date
     const incidentsForWhatsApp = currentIncidents.filter((incident) => {
+      // Step 0: If whitelisted, include it (unless deleted or I-PRT)
+      const isWhitelisted = eventIncidentIds.has(incident.id);
+      
+      console.log(`🔍 Checking Incident ${incident.id} (${incident.reference}): Whitelisted=${isWhitelisted}`);
+
       // Step 1: Must have date
       if (!incident.date) {
         console.log(`❌ Incident ${incident.id}: No date`);
@@ -854,6 +885,11 @@ const Calendario = () => {
       if (incident.reference && incident.reference.startsWith('I-PRT')) {
         console.log(`🚫 Incident ${incident.id}: I-PRT excluded (${incident.reference})`);
         return false;
+      }
+
+      if (isWhitelisted) {
+         console.log(`🔓 Incident ${incident.id} is whitelisted (linked to event) - bypassing date/tech checks`);
+         return true;
       }
       
       // Step 3: Check EXACT date match (parse without timezone conversion)
@@ -1072,7 +1108,7 @@ const Calendario = () => {
       let isRejected = false;
       const stateId = stelIncident['incident-state-id'];
       if (stateId) {
-        const state = incidentStates.get(stateId);
+        const state = currentIncidentStates.get(stateId);
         if (state) {
           const name = state.name.toLowerCase();
           if (name.includes('rechaz') || name.includes('refus') || name.includes('cancel') || name.includes('reject')) {
@@ -1143,21 +1179,21 @@ const Calendario = () => {
             }
 
             if (typeof incidentTypeId === 'number') {
-                incidentTypeObj = incidentTypes.get(incidentTypeId as number) ?? undefined;
+                incidentTypeObj = currentIncidentTypes.get(incidentTypeId as number) ?? undefined;
             } else if (typeof incidentTypeId === 'string') {
                 const n = Number(incidentTypeId);
-                if (!Number.isNaN(n)) incidentTypeObj = incidentTypes.get(n) ?? undefined;
+                if (!Number.isNaN(n)) incidentTypeObj = currentIncidentTypes.get(n) ?? undefined;
             }
 
             if (!incidentTypeObj && stelIncident['incident-type-path']) {
                 const path = String(stelIncident['incident-type-path']);
-                const byPath = Array.from(incidentTypes.values()).find(t => t.path === path);
+                const byPath = Array.from(currentIncidentTypes.values()).find(t => t.path === path);
                 if (byPath) incidentTypeObj = byPath;
                 else {
                     const tailMatch = path.match(/\/(\d+)\/?$/);
                     if (tailMatch) {
                         const tailId = Number(tailMatch[1]);
-                        const byTail = incidentTypes.get(tailId);
+                        const byTail = currentIncidentTypes.get(tailId);
                         if (byTail) incidentTypeObj = byTail;
                     }
                 }
@@ -1257,7 +1293,50 @@ const Calendario = () => {
       // Force fetch incidents for the current date to ensure we have the latest data
       // This fixes the issue where incidents might be stale or missing if the user navigated to a different date
       console.log('🔄 Force fetching incidents before generating WhatsApp...');
-      const result = await fetchIncidents(false);
+      
+      // NEW STRATEGY: Extract incident IDs from the events and fetch ONLY those incidents
+      // This guarantees we get the exact incidents linked to the events on the calendar
+      const incidentIds = events
+        .map(e => {
+          const resource = e.resource as any;
+          // Check both incident-id and incident-path
+          let id = resource['incident-id'];
+          if (!id && resource['incident-path']) {
+             const match = resource['incident-path'].match(/\/(\d+)$/);
+             if (match) id = parseInt(match[1]);
+          }
+          return id;
+        })
+        .filter(id => typeof id === 'number') as number[];
+        
+      console.log(`🆔 Extracted ${incidentIds.length} incident IDs from ${events.length} events for WhatsApp generation`);
+      console.log(`🆔 IDs to fetch:`, incidentIds);
+      
+      let result;
+      
+      if (incidentIds.length > 0) {
+        // Fetch specific IDs
+        console.log(`🆔 Fetching ${incidentIds.length} specific incidents...`);
+        result = await fetchIncidents(false, undefined, incidentIds);
+      } else {
+        // Fallback to date range if no IDs found (shouldn't happen for valid events)
+        console.warn('⚠️ No incident IDs found in events, falling back to date range fetch');
+        const startOfDay = new Date(normalizedDate);
+        startOfDay.setHours(0, 0, 0, 0);
+        
+        const endOfDay = new Date(normalizedDate);
+        endOfDay.setHours(23, 59, 59, 999);
+        
+        const oneYearAgo = new Date();
+        oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+
+        result = await fetchIncidents(false, {
+          start: startOfDay,
+          end: endOfDay,
+          lookbackWindow: oneYearAgo
+        });
+      }
+      
       const freshIncidents = result?.incidents || [];
       const assigneeMap = result?.assigneeMap;
       
@@ -1307,7 +1386,7 @@ const Calendario = () => {
     };
   }, [navigate]);
 
-  const fetchIncidents = async (shouldSetLoading = true) => {
+  const fetchIncidents = async (shouldSetLoading = true, dateRange?: { start: Date, end: Date, lookbackWindow?: Date }, specificIds?: number[]) => {
     console.log('🚀 fetchIncidents called - LOADING INCIDENTS (NOT EVENTS)!');
     if (shouldSetLoading) setLoading(true);
     try {
@@ -1321,11 +1400,18 @@ const Calendario = () => {
         console.log('📅 Processing Incidents:', {
           totalIncidents: stelIncidents.length
         });
+        
+        if (stelIncidents.length > 0) {
+            console.log('🔍 RAW INCIDENT SAMPLE (First 3):', JSON.stringify(stelIncidents.slice(0, 3), null, 2));
+        }
 
         // Filter out deleted incidents and I-PRT incidents
         const validIncidents = stelIncidents.filter((incident) => {
           // Exclude deleted incidents
-          if (incident.deleted) return false;
+          if (incident.deleted) {
+             console.log(`🚫 Excluding DELETED incident: ${incident.id} (${incident.reference})`);
+             return false;
+          }
           
           // Exclude I-PRT incidents (reference starts with "I-PRT")
           if (incident.reference && incident.reference.startsWith('I-PRT')) {
@@ -1446,9 +1532,10 @@ const Calendario = () => {
         try {
           if (import.meta.env.DEV) {
             // DEV: Fetch all incident types via Vite proxy
+            // NOTE: This is NOT fetching incidents. It is fetching incident TYPES (metadata like "Maintenance", "Repair")
             const proxyUrl = `/api/stel/app/incidentTypes?limit=500`;
             
-            console.log(`📡 Fetching all incident types from proxy...`);
+            console.log(`📡 Fetching incident TYPES (metadata) to resolve names...`);
             
             const response = await fetch(proxyUrl, {
               headers: {
@@ -1474,9 +1561,9 @@ const Calendario = () => {
             }
           } else {
             // PROD: Use Supabase Edge Function for incident types
-            console.log('📡 Fetching incident types from Edge Function...');
+            console.log('📡 Fetching incident types from Edge Function (v3)...');
             
-            const { data: incidentTypesData, error: incidentTypesError } = await supabase.functions.invoke('stel-incident-types-v2', {
+            const { data: incidentTypesData, error: incidentTypesError } = await supabase.functions.invoke('stel-incident-types-v3', {
               body: {
                 limit: '500',
               },
@@ -1519,36 +1606,129 @@ const Calendario = () => {
       if (import.meta.env.DEV) {
         console.log('✅ Running in DEV mode, using Vite proxy');
         try {
-          // Fetch incidents from 1 month before AND 1 month ahead (2 months total)
-          const oneMonthAgo = new Date(today);
-          oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
-          const utcLastModificationDate = oneMonthAgo.toISOString().replace(/\.\d{3}Z$/, '+0000');
+          // MODE 1: Specific IDs (Robust WhatsApp Generation)
+          if (specificIds && specificIds.length > 0) {
+            console.log(`🆔 Fetching ${specificIds.length} specific incidents by ID (DEV mode)...`);
+            
+            // Fetch incidents in parallel with concurrency limit
+            const chunkArray = <T,>(array: T[], size: number): T[][] => {
+              const chunked: T[][] = [];
+              for (let i = 0; i < array.length; i += size) {
+                chunked.push(array.slice(i, i + size));
+              }
+              return chunked;
+            };
+
+            const chunks = chunkArray(specificIds, 5);
+            let fetchedIncidents: StelIncident[] = [];
+
+            for (const chunk of chunks) {
+              await Promise.all(chunk.map(async (id) => {
+                try {
+                  const proxyUrl = `/api/stel/app/incidents/${id}`;
+                  const response = await fetch(proxyUrl, {
+                    headers: { APIKEY: import.meta.env.VITE_STEL_API_KEY },
+                  });
+                  
+                  if (response.ok) {
+                    const data = await response.json();
+                    // console.log(`📦 Raw response for incident ${id}:`, data);
+                    
+                    // Handle if API returns array or single object
+                    if (Array.isArray(data)) {
+                        if (data.length > 0) fetchedIncidents.push(data[0]);
+                    } else if (data) {
+                        fetchedIncidents.push(data);
+                    }
+                  } else {
+                    console.warn(`⚠️ Failed to fetch incident ${id}: ${response.status}`);
+                  }
+                } catch (e) {
+                  console.error(`❌ Error fetching incident ${id}:`, e);
+                }
+              }));
+              // Small delay between chunks
+              if (chunks.length > 1) await new Promise(resolve => setTimeout(resolve, 100));
+            }
+            
+            console.log(`✅ Successfully fetched ${fetchedIncidents.length} incidents by ID`);
+            return await applyIncidents(fetchedIncidents);
+          }
+          
+          // MODE 2: Date Range (Legacy/Fallback)
+          // Only run if specificIds is NOT provided
+          console.log('⚠️ No specific IDs provided, falling back to date range fetch (DEV mode)');
+          
+          // Determine date range and lookback window
+          let filterStartDate: Date;
+          let filterEndDate: Date;
+          let utcLastModificationDate: string;
+
+          if (dateRange) {
+            // Custom range (e.g. for WhatsApp generation - specific day)
+            filterStartDate = dateRange.start;
+            filterEndDate = dateRange.end;
+            
+            // For specific day fetch, use a wider lookback window (default 1 year) to ensure we catch old incidents scheduled for today
+            const lookback = dateRange.lookbackWindow || new Date(new Date().setFullYear(new Date().getFullYear() - 1));
+            utcLastModificationDate = lookback.toISOString().replace(/\.\d{3}Z$/, '+0000');
+            console.log(`📅 Custom fetch mode (DEV): Specific day ${filterStartDate.toISOString()} to ${filterEndDate.toISOString()}`);
+          } else {
+            // Default range (Calendar view context - 2 weeks back, 4 weeks forward)
+            const oneMonthAgo = new Date(today);
+            oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+            utcLastModificationDate = oneMonthAgo.toISOString().replace(/\.\d{3}Z$/, '+0000');
+            
+            filterStartDate = new Date(today);
+            filterStartDate.setDate(filterStartDate.getDate() - 14);
+            filterEndDate = new Date(today);
+            filterEndDate.setDate(filterEndDate.getDate() + 28);
+            console.log(`📅 Default fetch mode (DEV): Window -14/+28 days`);
+          }
           
           console.log(`📅 Filtering incidents modified after: ${utcLastModificationDate}`);
           
-          const limit = 500; // Maximum supported
-          const proxyUrl = `/api/stel/app/incidents?limit=${limit}&utc-last-modification-date=${encodeURIComponent(utcLastModificationDate)}`;
+          let allIncidents: StelIncident[] = [];
+          let start = 0;
+          let hasMore = true;
+          const limit = 500;
           
-          console.log(`📡 Fetching incidents with limit=${limit}...`);
-          
-          const response = await fetch(proxyUrl, {
-            headers: {
-              APIKEY: import.meta.env.VITE_STEL_API_KEY,
-            },
-          });
+          while (hasMore) {
+            const proxyUrl = `/api/stel/app/incidents?limit=${limit}&start=${start}&utc-last-modification-date=${encodeURIComponent(utcLastModificationDate)}`;
+            console.log(`📡 Fetching incidents batch: start=${start}, limit=${limit}`);
+            
+            const response = await fetch(proxyUrl, {
+              headers: {
+                APIKEY: import.meta.env.VITE_STEL_API_KEY,
+              },
+            });
 
-          if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            if (!response.ok) {
+              throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const batch = (await response.json()) as StelIncident[];
+            console.log(`✅ Fetched batch of ${batch.length} incidents`);
+            
+            if (batch.length === 0) {
+              hasMore = false;
+            } else {
+              allIncidents = [...allIncidents, ...batch];
+              
+              if (batch.length < limit) {
+                hasMore = false;
+              } else {
+                start += limit;
+                // Safety break
+                if (start > 10000) {
+                  console.warn("⚠️ Safety break: exceeded 10000 incidents");
+                  hasMore = false;
+                }
+              }
+            }
           }
-
-          const allIncidents = (await response.json()) as StelIncident[];
-          console.log(`✅ Total incidents fetched: ${allIncidents.length}`);
           
-          // Filter: not deleted AND incident date between 1 month ago and 1 month ahead
-          const oneMonthAgoDate = new Date(today);
-          oneMonthAgoDate.setMonth(oneMonthAgoDate.getMonth() - 1);
-          const oneMonthAheadDate = new Date(today);
-          oneMonthAheadDate.setMonth(oneMonthAheadDate.getMonth() + 1);
+          console.log(`✅ Total incidents fetched: ${allIncidents.length}`);
           
           const validIncidents = allIncidents.filter((incident) => {
             // Exclude deleted incidents
@@ -1565,11 +1745,11 @@ const Calendario = () => {
             
             // Filter by date range
             const incidentDate = new Date(incident.date);
-            return incidentDate >= oneMonthAgoDate && incidentDate <= oneMonthAheadDate;
+            return incidentDate >= filterStartDate && incidentDate <= filterEndDate;
           });
           
-          console.log(`✅ Valid incidents (not deleted, -1 month to +1 month): ${validIncidents.length}`);
-          console.log(`📅 Date range filter: ${moment(oneMonthAgoDate).format('YYYY-MM-DD')} to ${moment(oneMonthAheadDate).format('YYYY-MM-DD')}`);
+          console.log(`✅ Valid incidents (not deleted, -2 weeks to +4 weeks): ${validIncidents.length}`);
+          console.log(`📅 Date range filter: ${moment(filterStartDate).format('YYYY-MM-DD')} to ${moment(filterEndDate).format('YYYY-MM-DD')}`);
           
           // Get date range
           if (validIncidents.length > 0) {
@@ -1591,20 +1771,56 @@ const Calendario = () => {
         }
       } else {
         // PROD: Use Supabase Edge Function
-        console.log('🚀 PROD MODE: Using stel-incidents-v2 Edge Function');
+        console.log('🚀 PROD MODE: Using stel-incidents-v3 Edge Function');
         
         try {
-          const oneMonthAgo = new Date(today);
-          oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
-          const utcLastModificationDate = oneMonthAgo.toISOString().replace(/\.\d{3}Z$/, '+0000');
+          let body: any = { limit: '500' };
+
+          // MODE 1: Specific IDs (Robust WhatsApp Generation)
+          if (specificIds && specificIds.length > 0) {
+            console.log(`🆔 Fetching ${specificIds.length} specific incidents by ID...`);
+            body.ids = specificIds;
+          } 
+          // MODE 2: Date Range (Calendar View)
+          else {
+            // Determine date range and lookback window
+            let filterStartDate: Date;
+            let filterEndDate: Date;
+            let utcLastModificationDate: string;
+
+            if (dateRange) {
+              // Custom range (e.g. for WhatsApp generation - specific day)
+              filterStartDate = dateRange.start;
+              filterEndDate = dateRange.end;
+              
+              // For specific day fetch, use a wider lookback window (default 1 year) to ensure we catch old incidents scheduled for today
+              const lookback = dateRange.lookbackWindow || new Date(new Date().setFullYear(new Date().getFullYear() - 1));
+              utcLastModificationDate = lookback.toISOString().replace(/\.\d{3}Z$/, '+0000');
+              console.log(`📅 Custom fetch mode: Specific day ${filterStartDate.toISOString()} to ${filterEndDate.toISOString()}`);
+              console.log(`📅 Using wide lookback window: ${utcLastModificationDate}`);
+            } else {
+              // Default range (Calendar view context - 2 weeks back, 4 weeks forward)
+              const oneMonthAgo = new Date(today);
+              oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+              utcLastModificationDate = oneMonthAgo.toISOString().replace(/\.\d{3}Z$/, '+0000');
+              
+              filterStartDate = new Date(today);
+              filterStartDate.setDate(filterStartDate.getDate() - 14);
+              filterEndDate = new Date(today);
+              filterEndDate.setDate(filterEndDate.getDate() + 28);
+              console.log(`📅 Default fetch mode: Window -14/+28 days`);
+            }
+            
+            console.log(`📅 Fetching incidents modified after: ${utcLastModificationDate}`);
+            console.log(`📅 Filtering response for range: ${filterStartDate.toISOString()} to ${filterEndDate.toISOString()}`);
+            
+            body.utcLastModificationDate = utcLastModificationDate;
+            body.filterFrom = filterStartDate.toISOString();
+            body.filterTo = filterEndDate.toISOString();
+          }
           
-          console.log(`📅 Fetching incidents modified after: ${utcLastModificationDate}`);
-          
-          const { data, error } = await supabase.functions.invoke('stel-incidents-v2', {
-            body: {
-              limit: '500',
-              utcLastModificationDate: utcLastModificationDate,
-            },
+          const { data, error } = await supabase.functions.invoke('stel-incidents-v3', {
+            body: body,
           });
           
           if (error) {
@@ -1615,23 +1831,34 @@ const Calendario = () => {
           const allIncidents = (data ?? []) as StelIncident[];
           console.log(`✅ Total incidents fetched: ${allIncidents.length}`);
           
-          // Filter: not deleted AND incident date between 1 month ago and 1 month ahead
-          const oneMonthAgoDate = new Date(today);
-          oneMonthAgoDate.setMonth(oneMonthAgoDate.getMonth() - 1);
-          const oneMonthAheadDate = new Date(today);
-          oneMonthAheadDate.setMonth(oneMonthAheadDate.getMonth() + 1);
+          // Only apply date filtering if we are NOT fetching by specific IDs
+          // If fetching by IDs, we trust the IDs are correct
+          let validIncidents = allIncidents;
           
-          const validIncidents = allIncidents.filter((incident) => {
-            if (incident.deleted) return false;
-            if (!incident.date) return false;
-            if (incident.reference && incident.reference.startsWith('I-PRT')) {
-              return false;
-            }
-            const incidentDate = new Date(incident.date);
-            return incidentDate >= oneMonthAgoDate && incidentDate <= oneMonthAheadDate;
-          });
+          if (!specificIds || specificIds.length === 0) {
+             // Re-calculate filter dates for local filtering if needed (redundant but safe)
+             const filterStartDate = dateRange ? dateRange.start : new Date(new Date(today).setDate(today.getDate() - 14));
+             const filterEndDate = dateRange ? dateRange.end : new Date(new Date(today).setDate(today.getDate() + 28));
+
+             validIncidents = allIncidents.filter((incident) => {
+              if (incident.deleted) return false;
+              if (!incident.date) return false;
+              if (incident.reference && incident.reference.startsWith('I-PRT')) {
+                return false;
+              }
+              const incidentDate = new Date(incident.date);
+              return incidentDate >= filterStartDate && incidentDate <= filterEndDate;
+            });
+          } else {
+             // Even for specific IDs, filter out deleted and I-PRT
+             validIncidents = allIncidents.filter((incident) => {
+              if (incident.deleted) return false;
+              if (incident.reference && incident.reference.startsWith('I-PRT')) return false;
+              return true;
+            });
+          }
           
-          console.log(`✅ Valid incidents (not deleted, -1 month to +1 month): ${validIncidents.length}`);
+          console.log(`✅ Valid incidents: ${validIncidents.length}`);
           
           return await applyIncidents(validIncidents);
         } catch (edgeFunctionError) {
@@ -1691,43 +1918,73 @@ const Calendario = () => {
         
         try {
           if (import.meta.env.DEV) {
-            // DEV: Fetch all event types via Vite proxy
-            const proxyUrl = `/api/stel/app/eventTypes?limit=500`;
+            // DEV: Fetch all event types via Vite proxy with PAGINATION
+            console.log(`📡 Fetching all event types with pagination...`);
             
-            console.log(`📡 Fetching all event types...`);
+            let allEventTypes: StelEventType[] = [];
+            let start = 0;
+            let hasMore = true;
+            const limit = 500;
             
-            const response = await fetch(proxyUrl, {
-              headers: {
-                APIKEY: import.meta.env.VITE_STEL_API_KEY,
-              },
-            });
-
-            if (response.ok) {
-              const allEventTypes = (await response.json()) as StelEventType[];
-              console.log(`✅ Fetched ${allEventTypes.length} event types from API`);
+            while (hasMore) {
+              const proxyUrl = `/api/stel/app/eventTypes?limit=${limit}&start=${start}`;
+              console.log(`📡 Fetching event types batch: start=${start}, limit=${limit}`);
               
-              // Extract TEC codes from event type names and map by ID
-              allEventTypes.forEach((eventType) => {
-                if (uniqueEventTypeIds.includes(eventType.id) && eventType.name) {
-                  // Event type name contains "TEC095" or similar
-                  const techMatch = eventType.name.match(/TEC\s*(\d+)/i);
-                  if (techMatch) {
-                    const normalizedTech = `TEC${String(techMatch[1]).padStart(3, '0')}`;
-                    eventTypeToTecMap.set(eventType.id, normalizedTech);
-                    console.log(`✅ Mapped event type ${eventType.id} (${eventType.name}) to ${normalizedTech}`);
+              const response = await fetch(proxyUrl, {
+                headers: {
+                  APIKEY: import.meta.env.VITE_STEL_API_KEY,
+                },
+              });
+
+              if (response.ok) {
+                const batch = (await response.json()) as StelEventType[];
+                console.log(`✅ Fetched batch of ${batch.length} event types`);
+                
+                if (batch.length === 0) {
+                  hasMore = false;
+                } else {
+                  allEventTypes = [...allEventTypes, ...batch];
+                  
+                  if (batch.length < limit) {
+                    hasMore = false;
                   } else {
-                    console.warn(`⚠️ Event type ${eventType.id} has no TEC in name: "${eventType.name}"`);
+                    start += limit;
+                    // Safety break
+                    if (start > 10000) {
+                      console.warn("⚠️ Safety break: exceeded 10000 event types");
+                      hasMore = false;
+                    }
                   }
                 }
-              });
-              
-              console.log(`✅ Mapped ${eventTypeToTecMap.size} event types to TEC codes`);
+              } else {
+                console.error(`❌ Failed to fetch event types batch: ${response.status}`);
+                hasMore = false;
+              }
             }
+            
+            console.log(`✅ Total event types fetched: ${allEventTypes.length}`);
+            
+            // Extract TEC codes from event type names and map by ID
+            allEventTypes.forEach((eventType) => {
+              if (uniqueEventTypeIds.includes(eventType.id) && eventType.name) {
+                // Event type name contains "TEC095" or similar
+                const techMatch = eventType.name.match(/TEC\s*(\d+)/i);
+                if (techMatch) {
+                  const normalizedTech = `TEC${String(techMatch[1]).padStart(3, '0')}`;
+                  eventTypeToTecMap.set(eventType.id, normalizedTech);
+                  console.log(`✅ Mapped event type ${eventType.id} (${eventType.name}) to ${normalizedTech}`);
+                } else {
+                  console.warn(`⚠️ Event type ${eventType.id} has no TEC in name: "${eventType.name}"`);
+                }
+              }
+            });
+            
+            console.log(`✅ Mapped ${eventTypeToTecMap.size} event types to TEC codes`);
           } else {
             // PROD: Fetch all event types via Edge Function
-            console.log('🚀 PROD MODE: Using stel-event-types-v2 Edge Function');
+            console.log('🚀 PROD MODE: Using stel-event-types-v3 Edge Function');
             
-            const { data: eventTypesData, error: eventTypesError } = await supabase.functions.invoke('stel-event-types-v2', {
+            const { data: eventTypesData, error: eventTypesError } = await supabase.functions.invoke('stel-event-types-v3', {
               body: { limit: '500' },
             });
             
@@ -1913,39 +2170,135 @@ const Calendario = () => {
 
       // Fetch events logic
       if (import.meta.env.DEV) {
-        console.log('✅ Running in DEV mode, using Vite proxy');
+        console.log('✅ Running in DEV mode, using Vite proxy with PAGINATION');
         try {
-          const oneMonthAgo = new Date();
-          oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
-          const utcLastModificationDate = oneMonthAgo.toISOString().replace(/\.\d{3}Z$/, '+0000');
+          // Calculate filter dates for API request
+          // Use current date (from state) or today
+          const today = currentDate || new Date();
+          const filterStartDate = new Date(today);
+          filterStartDate.setDate(filterStartDate.getDate() - 14);
+          const filterEndDate = new Date(today);
+          filterEndDate.setDate(filterEndDate.getDate() + 28);
+
+          // Safety buffer: Shift start date back by 30 days to catch long-running events
+          const apiStartDateObj = new Date(filterStartDate);
+          apiStartDateObj.setDate(apiStartDateObj.getDate() - 30);
+          const apiStartDate = apiStartDateObj.toISOString().replace(/\.\d{3}Z$/, '+0000');
           
+          const apiEndDate = filterEndDate.toISOString().replace(/\.\d{3}Z$/, '+0000');
+          
+          console.log(`📅 Fetching events for range: ${apiStartDate} to ${apiEndDate}`);
+          
+          let allEvents: StelEvent[] = [];
+          let start = 0;
+          let hasMore = true;
           const limit = 500;
-          const proxyUrl = `/api/stel/app/events?limit=${limit}&utc-last-modification-date=${encodeURIComponent(utcLastModificationDate)}`;
           
-          const response = await fetch(proxyUrl, {
-            headers: { APIKEY: import.meta.env.VITE_STEL_API_KEY },
+          while (hasMore) {
+            // Use start-date and end-date instead of utc-last-modification-date for efficiency
+            const proxyUrl = `/api/stel/app/events?limit=${limit}&start=${start}&start-date=${encodeURIComponent(apiStartDate)}&end-date=${encodeURIComponent(apiEndDate)}`;
+            console.log(`📡 Fetching events batch: start=${start}, limit=${limit}`);
+            
+            const response = await fetch(proxyUrl, {
+              headers: { APIKEY: import.meta.env.VITE_STEL_API_KEY },
+            });
+
+            if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+
+            const batch = (await response.json()) as StelEvent[];
+            console.log(`✅ Fetched batch of ${batch.length} events`);
+            
+            if (batch.length === 0) {
+              hasMore = false;
+            } else {
+              allEvents = [...allEvents, ...batch];
+              
+              if (batch.length < limit) {
+                hasMore = false;
+              } else {
+                start += limit;
+                // Safety break
+                if (start > 10000) {
+                  console.warn("⚠️ Safety break: exceeded 10000 events");
+                  hasMore = false;
+                }
+              }
+            }
+          }
+          
+          console.log(`✅ Total events fetched: ${allEvents.length}`);
+          
+          // Filter: not deleted AND event date between 2 weeks ago and 4 weeks ahead
+          const validEvents = allEvents.filter((event) => {
+            if (event.deleted) return false;
+            if (!event['start-date']) return false;
+            
+            const eventDate = new Date(event['start-date']);
+            return eventDate >= filterStartDate && eventDate <= filterEndDate;
           });
-
-          if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-
-          const allEvents = (await response.json()) as StelEvent[];
-          await applyEvents(allEvents);
+          
+          console.log(`✅ Valid events (not deleted, -2 weeks to +4 weeks): ${validEvents.length}`);
+          
+          await applyEvents(validEvents);
         } catch (error) {
            console.error('Error in DEV fetch:', error);
            throw error;
         }
       } else {
-        console.log('🚀 PROD MODE: Using stel-events-v2 Edge Function');
-        const { data: eventsData, error: eventsError } = await supabase.functions.invoke('stel-events-v2', {
-          body: { limit: '500' },
-        });
+        // PROD: Use Supabase Edge Function
+        console.log('🚀 PROD MODE: Using stel-events-v3 Edge Function');
         
-        if (eventsError) throw new Error(`Edge Function Error: ${eventsError.message}`);
-        
-        if (eventsData && Array.isArray(eventsData)) {
-           await applyEvents(eventsData as StelEvent[]);
-        } else {
-           await applyEvents([]);
+        try {
+          const sixMonthsAgo = new Date();
+          sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+          const utcLastModificationDate = sixMonthsAgo.toISOString().replace(/\.\d{3}Z$/, '+0000');
+          
+          // Calculate filter dates
+          const today = currentDate || new Date();
+          const filterStartDate = new Date(today);
+          filterStartDate.setDate(filterStartDate.getDate() - 14);
+          const filterEndDate = new Date(today);
+          filterEndDate.setDate(filterEndDate.getDate() + 28);
+
+          console.log(`📅 Fetching events modified after: ${utcLastModificationDate}`);
+          console.log(`📅 Filtering response for range: ${filterStartDate.toISOString()} to ${filterEndDate.toISOString()}`);
+          
+          const { data, error } = await supabase.functions.invoke('stel-events-v3', {
+            body: {
+              limit: '500',
+              utcLastModificationDate: utcLastModificationDate,
+              filterFrom: filterStartDate.toISOString(),
+              filterTo: filterEndDate.toISOString(),
+            },
+          });
+          
+          if (error) {
+            console.error('❌ Edge function error (stel-events-v3):', error);
+            throw error;
+          }
+          
+          const allEvents = (data ?? []) as StelEvent[];
+          console.log(`✅ Total events fetched: ${allEvents.length}`);
+          
+          const validEvents = allEvents.filter((event) => {
+            if (event.deleted) return false;
+            if (!event['start-date']) return false;
+            
+            // Double check date range (redundant but safe)
+            const eventDate = new Date(event['start-date']);
+            return eventDate >= filterStartDate && eventDate <= filterEndDate;
+          });
+          
+          console.log(`✅ Valid events (not deleted, -2 weeks to +4 weeks): ${validEvents.length}`);
+          
+          await applyEvents(validEvents);
+        } catch (edgeFunctionError) {
+          console.error('❌ Edge Function request failed:', edgeFunctionError);
+          toast({
+            title: 'Error',
+            description: 'No se pudieron cargar los eventos',
+            variant: 'destructive',
+          });
         }
       }
 

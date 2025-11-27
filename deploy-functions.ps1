@@ -1,12 +1,9 @@
 $functions = @(
-    "stel-incident-types-v2",
-    "stel-incident-states-v2",
-    "stel-employee-v2",
-    "stel-incidents-v2",
-    "stel-event-types-v2",
-    "stel-events-v2",
-    "stel-client-v2",
-    "stel-address-v2"
+    "stel-events-v3",
+    "stel-incidents-v3",
+    "stel-event-types-v3",
+    "stel-incident-types-v3",
+    "stel-incident-states-v3"
 )
 
 Write-Host "Deploying Supabase Edge Functions..." -ForegroundColor Cyan
