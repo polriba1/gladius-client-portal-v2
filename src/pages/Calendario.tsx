@@ -855,10 +855,10 @@ const Calendario = () => {
     const eventIncidentIds = new Set(
       events
         .map(e => {
-          const r = e.resource as any;
+          const r = e.resource as unknown as Record<string, unknown>;
           // Check both incident-id and incident-path
-          let id = r['incident-id'];
-          if (!id && r['incident-path']) {
+          let id = r['incident-id'] as number | undefined;
+          if (!id && typeof r['incident-path'] === 'string') {
              const match = r['incident-path'].match(/\/(\d+)$/);
              if (match) id = parseInt(match[1]);
           }
@@ -1298,10 +1298,10 @@ const Calendario = () => {
       // This guarantees we get the exact incidents linked to the events on the calendar
       const incidentIds = events
         .map(e => {
-          const resource = e.resource as any;
+          const resource = e.resource as unknown as Record<string, unknown>;
           // Check both incident-id and incident-path
-          let id = resource['incident-id'];
-          if (!id && resource['incident-path']) {
+          let id = resource['incident-id'] as number | undefined;
+          if (!id && typeof resource['incident-path'] === 'string') {
              const match = resource['incident-path'].match(/\/(\d+)$/);
              if (match) id = parseInt(match[1]);
           }
@@ -1620,7 +1620,7 @@ const Calendario = () => {
             };
 
             const chunks = chunkArray(specificIds, 5);
-            let fetchedIncidents: StelIncident[] = [];
+            const fetchedIncidents: StelIncident[] = [];
 
             for (const chunk of chunks) {
               await Promise.all(chunk.map(async (id) => {
@@ -1774,7 +1774,7 @@ const Calendario = () => {
         console.log('🚀 PROD MODE: Using stel-incidents-v3 Edge Function');
         
         try {
-          let body: any = { limit: '500' };
+          const body: Record<string, unknown> = { limit: '500' };
 
           // MODE 1: Specific IDs (Robust WhatsApp Generation)
           if (specificIds && specificIds.length > 0) {
