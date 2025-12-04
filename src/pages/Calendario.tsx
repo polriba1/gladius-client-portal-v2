@@ -782,282 +782,83 @@ const Calendario = () => {
 
   // Generate WhatsApp formatted text for technician's day
   // IMPORTANT: Always use incidents (ruta antiga) to construct WhatsApp text, even if calendar shows events
-  const generateWhatsAppText = async (technicianName: string, events: CalendarEvent[], date: Date, incidents?: StelIncident[], assigneeMapOverride?: Map<number, string>) => {
+  const generateWhatsAppText = async (technicianName: string, events: CalendarEvent[], date: Date) => {
     console.log(`📱 ========================================`);
-    console.log(`📱 Generating WhatsApp text for ${technicianName}`);
+    console.log(`📱 Generating WhatsApp text for ${technicianName} using EVENTS`);
     console.log(`📱 Date: ${moment(date).format('YYYY-MM-DD HH:mm:ss')}`);
-    console.log(`📱 Total incidents loaded: ${allIncidents.length}`);
+    console.log(`📱 Total events received: ${events.length}`);
     
-    let mapToUse = assigneeMapOverride || assigneeToTecMap;
-    console.log(`📱 AssigneeMap size: ${mapToUse.size}`);
-    console.log(`📱 AssigneeMap entries:`, Array.from(mapToUse.entries()));
-
-    // If incident types haven't been loaded yet, fetch them on-demand (robustness guard)
-    let currentIncidentTypes = incidentTypes;
-    if (currentIncidentTypes.size === 0) {
-      console.log('📡 incidentTypes Map empty — fetching incident types on-demand...');
-      try {
-        const fetchedMap = await fetchAndSetIncidentTypes();
-        if (fetchedMap && fetchedMap.size > 0) {
-          currentIncidentTypes = fetchedMap;
-          console.log(`📡 Fetched incident types on-demand: ${fetchedMap.size}`);
-        }
-      } catch (e) {
-        console.warn('⚠️ Failed to fetch incident types on-demand:', e);
-      }
-    }
-
-    // If incident states haven't been loaded yet, fetch them on-demand
-    let currentIncidentStates = incidentStates;
-    if (currentIncidentStates.size === 0) {
-      console.log('📡 incidentStates Map empty — fetching incident states on-demand...');
-      try {
-        const fetchedMap = await fetchAndSetIncidentStates();
-        if (fetchedMap && fetchedMap.size > 0) {
-          currentIncidentStates = fetchedMap;
-          console.log(`📡 Fetched incident states on-demand: ${fetchedMap.size}`);
-        }
-      } catch (e) {
-        console.warn('⚠️ Failed to fetch incident states on-demand:', e);
-      }
-    }
-
-    // Check if we have incidents in state, if not try to fetch them on-demand
-    let currentIncidents = incidents || allIncidents;
-    if (currentIncidents.length === 0) {
-      console.log('⚠️ No incidents found in state - attempting to fetch on-demand...');
-      try {
-        const fetchedData = await fetchIncidents();
-        if (fetchedData && fetchedData.incidents && fetchedData.incidents.length > 0) {
-          currentIncidents = fetchedData.incidents;
-          console.log(`✅ Fetched ${fetchedData.incidents.length} incidents on-demand`);
-          
-          // If we fetched fresh data and don't have an override, use the fresh map
-          if (!assigneeMapOverride && fetchedData.assigneeMap) {
-             mapToUse = fetchedData.assigneeMap;
-             console.log(`✅ Using fresh assignee map from fetch (${mapToUse.size} entries)`);
-          }
-        } else {
-          console.log('⚠️ On-demand fetch returned no incidents');
-        }
-      } catch (e) {
-        console.warn('⚠️ Failed to fetch incidents on demand:', e);
-      }
-    }
-    
-    // Step 1: Filter incidents by date and technician (ruta antiga) - EXACT MATCH REQUIRED
-    const targetDateStr = moment(date).format('YYYY-MM-DD');
-    console.log(`📅 Target date (EXACT): ${targetDateStr}`);
-    console.log(`👤 Target technician (EXACT): ${technicianName}`);
-    
-    // NEW: Create a Set of incident IDs from the events to whitelist them
-    // If an incident is linked to an event on this day, we include it regardless of its internal date
-    const eventIncidentIds = new Set(
-      events
-        .map(e => {
-          const r = e.resource as unknown as Record<string, unknown>;
-          // Check both incident-id and incident-path
-          let id = r['incident-id'] as number | undefined;
-          if (!id && typeof r['incident-path'] === 'string') {
-             const match = r['incident-path'].match(/\/(\d+)$/);
-             if (match) id = parseInt(match[1]);
-          }
-          return id;
-        })
-        .filter(id => typeof id === 'number')
-    );
-    console.log(`🔓 Whitelisted Incident IDs from events:`, Array.from(eventIncidentIds));
-    
-    // Get all incidents for this EXACT technician and EXACT date
-    const incidentsForWhatsApp = currentIncidents.filter((incident) => {
-      // Step 0: If whitelisted, include it (unless deleted or I-PRT)
-      const isWhitelisted = eventIncidentIds.has(incident.id);
-      
-      console.log(`🔍 Checking Incident ${incident.id} (${incident.reference}): Whitelisted=${isWhitelisted}`);
-
-      // Step 1: Must have date
-      if (!incident.date) {
-        console.log(`❌ Incident ${incident.id}: No date`);
+    // Filter valid events (non-deleted, with resource)
+    const validEvents = events.filter(event => {
+      const resource = event.resource as StelEvent | undefined;
+      if (!resource) {
+        console.log(`❌ Event ${event.id}: No resource`);
         return false;
       }
-      
-      // Step 2: Exclude I-PRT incidents
-      if (incident.reference && incident.reference.startsWith('I-PRT')) {
-        console.log(`🚫 Incident ${incident.id}: I-PRT excluded (${incident.reference})`);
+      if (resource.deleted) {
+        console.log(`❌ Event ${event.id}: Deleted`);
         return false;
       }
-
-      if (isWhitelisted) {
-         console.log(`🔓 Incident ${incident.id} is whitelisted (linked to event) - bypassing date/tech checks`);
-         return true;
-      }
-      
-      // Step 3: Check EXACT date match (parse without timezone conversion)
-      // CRITICAL: incident.date is the SCHEDULED date (when service is planned)
-      // NOT incident['creation-date'] (when incident was created)
-      const scheduledDateStr = incident.date; // SCHEDULED date - e.g., "2024-09-30T09:00:00+0000"
-      const creationDateStr = incident['creation-date']; // When it was created
-      
-      const [datePart] = scheduledDateStr.split('T');
-      const incidentDateStr = datePart.trim(); // Direct date part, no timezone conversion
-      
-      // Log comparison for debugging
-      if (incidentDateStr !== targetDateStr) {
-        // Log if dates are different to help debug
-        console.log(`📅 Incident ${incident.id} (${incident.reference}):`);
-        console.log(`   SCHEDULED date (incident.date): ${incidentDateStr}`);
-        console.log(`   CREATION date (incident['creation-date']): ${creationDateStr ? creationDateStr.split('T')[0] : 'N/A'}`);
-        console.log(`   TARGET date: ${targetDateStr}`);
-        console.log(`   ❌ Date mismatch - using SCHEDULED date, not creation date`);
-        return false;
-      }
-      
-      // Verify we're using scheduled date, not creation date
-      if (creationDateStr && creationDateStr.split('T')[0] === targetDateStr && incidentDateStr !== targetDateStr) {
-        console.warn(`⚠️ WARNING: Incident ${incident.id} creation date matches but scheduled date doesn't!`);
-        console.warn(`   This means the incident was created on ${targetDateStr} but scheduled for ${incidentDateStr}`);
-        console.warn(`   We are correctly using SCHEDULED date (${incidentDateStr}), not creation date`);
-      }
-      
-      // Step 4: Must have assignee-id
-      if (!incident['assignee-id']) {
-        console.log(`⚠️ Incident ${incident.id}: No assignee-id`);
-        return false;
-      }
-      
-      // Step 5: Check EXACT technician match
-      const incidentTecCode = mapToUse.get(incident['assignee-id']);
-      if (!incidentTecCode) {
-        console.log(`⚠️ Incident ${incident.id}: No TEC code found for assignee-id ${incident['assignee-id']}`);
-        console.log(`   Available assignee-ids in map:`, Array.from(mapToUse.keys()));
-        console.log(`   Map entries:`, Array.from(mapToUse.entries()));
-        return false;
-      }
-      
-      // EXACT match required - trim and compare
-      const normalizedIncidentTec = incidentTecCode.trim();
-      const normalizedTargetTec = technicianName.trim();
-      
-      if (normalizedIncidentTec !== normalizedTargetTec) {
-        console.log(`👤 Incident ${incident.id}: Technician EXACT mismatch`);
-        console.log(`   Incident TEC: "${normalizedIncidentTec}" (length: ${normalizedIncidentTec.length})`);
-        console.log(`   Target TEC: "${normalizedTargetTec}" (length: ${normalizedTargetTec.length})`);
-        console.log(`   Assignee-id: ${incident['assignee-id']}`);
-        return false;
-      }
-      
-      // EXACT MATCH FOUND!
-      console.log(`✅✅✅ MATCH FOUND: Incident ${incident.id} (${incident.reference}) - date=${incidentDateStr}, tech=${incidentTecCode}`);
       return true;
     });
     
-    console.log(`📱 ========================================`);
-    console.log(`✅ FINAL RESULT: Found ${incidentsForWhatsApp.length} incidents for ${technicianName} on ${targetDateStr}`);
-    console.log(`📱 Incidents found:`, incidentsForWhatsApp.map(i => ({
-      id: i.id,
-      reference: i.reference,
-      date: i.date,
-      assigneeId: i['assignee-id']
-    })));
-    console.log(`📱 ========================================`);
+    console.log(`📱 Valid events after filtering: ${validEvents.length}`);
     
-    if (incidentsForWhatsApp.length === 0) {
+    if (validEvents.length === 0) {
       const dateStr = moment(date).format('dddd, D [de] MMMM [de] YYYY');
-      const msg = `📋 *Agenda para ${technicianName}*\n📅 ${dateStr}\n⏱️ Total: 0 servicios (0.0h)\n\nNo hay incidencias disponibles para esta fecha.`;
+      const msg = `📋 *Agenda para ${technicianName}*\n📅 ${dateStr}\n⏱️ Total: 0 servicios (0.0h)\n\nNo hay eventos disponibles para esta fecha.`;
       return { all: msg, accepted: msg };
     }
     
-    // Step 2: Convert incidents to CalendarEvent format for WhatsApp
-    // CRITICAL: Use incident.date (scheduled date) NOT incident['creation-date'] (when it was created)
-    const validEventsForWhatsApp: CalendarEvent[] = incidentsForWhatsApp.map((incident) => {
-      // IMPORTANT: incident.date is the SCHEDULED date (when the service is planned)
-      // NOT incident['creation-date'] which is when the incident was created
-      const scheduledDateStr = incident.date; // e.g., "2024-09-30T09:00:00+0000" - THIS IS THE SCHEDULED DATE
-      
-      console.log(`📅 Converting incident ${incident.id} (${incident.reference}):`);
-      console.log(`   Scheduled date (incident.date): ${scheduledDateStr}`);
-      console.log(`   Creation date (incident['creation-date']): ${incident['creation-date']}`);
-      console.log(`   Using SCHEDULED date for WhatsApp!`);
-      
-      const [datePart, timePartWithTZ] = scheduledDateStr.split('T');
-      const timePart = timePartWithTZ.split('+')[0].split('-')[0]; // Remove timezone
-      
-      const [year, month, day] = datePart.split('-').map(Number);
-      const timeComponents = timePart.split(':');
-      const hours = parseInt(timeComponents[0]);
-      const minutes = parseInt(timeComponents[1]);
-      const seconds = timeComponents[2] ? parseInt(timeComponents[2]) : 0;
-      
-      // Create a Date object with the LOCAL time values (no timezone conversion)
-      // This represents when the service is SCHEDULED, not when the incident was created
-      const startDate = new Date(year, month - 1, day, hours, minutes, seconds);
-      
-      // incident.length is in MINUTES (e.g., length: 60 = 1 hour)
-      // Default to 120 minutes (2 hours) if not specified
-      const durationMinutes = incident.length || 120;
-      const endDate = new Date(startDate.getTime() + durationMinutes * 60000);
-      
-      console.log(`   Start date for WhatsApp: ${moment(startDate).format('DD/MM/YYYY HH:mm')}`);
-      console.log(`   End date for WhatsApp: ${moment(endDate).format('DD/MM/YYYY HH:mm')}`);
-      
-      return {
-        id: incident.id,
-        title: incident.description || `INC ${incident.reference}`,
-        start: startDate, // SCHEDULED date/time
-        end: endDate, // SCHEDULED date/time + duration
-        resource: incident,
-        technician: technicianName,
-      };
-    });
-    
     // 🕐 SORT EVENTS BY TIME - From earliest to latest
-    const sortedEvents = [...validEventsForWhatsApp].sort((a, b) => {
+    const sortedEvents = [...validEvents].sort((a, b) => {
       const timeA = a.start.getTime();
       const timeB = b.start.getTime();
-      console.log(`🕐 Sorting: Event ${(a.resource as StelIncident)?.reference} (${moment(a.start).format('HH:mm')}) vs Event ${(b.resource as StelIncident)?.reference} (${moment(b.start).format('HH:mm')})`);
       return timeA - timeB;
     });
     
     console.log(`🕐 SORTED ORDER:`);
     sortedEvents.forEach((e, idx) => {
-      console.log(`   ${idx + 1}. ${(e.resource as StelIncident)?.reference} - ${moment(e.start).format('HH:mm')}`);
+      const res = e.resource as StelEvent;
+      console.log(`   ${idx + 1}. Event ${e.id} - ${moment(e.start).format('HH:mm')} - ${res?.subject || 'Sin título'}`);
     });
 
-    const dateStr = moment(date).format('dddd, D [de] MMMM [de] YYYY');
-    const totalHours = sortedEvents.reduce((acc, event) => {
-      return acc + moment.duration(moment(event.end).diff(moment(event.start))).asHours();
-    }, 0);
-
-    let text = `📋 *Agenda para ${technicianName}*\n`;
-    text += `📅 ${dateStr}\n`;
-    text += `⏱️ Total: ${sortedEvents.length} servicios (${totalHours.toFixed(1)}h)\n`;
-    text += `\n`;
-    text += `━━━━━━━━━━━━━━━━━━━━\n\n`;
-
-    // Fetch all client info, address info in parallel
-    console.log(`📡 Fetching data for ${sortedEvents.length} incidents...`);
-    
-    // Extract all IDs first to maintain consistency (from incidents now)
+    // Extract all client IDs from events (events have account-id/account-path)
     const clientIds = sortedEvents.map((event) => {
-      let clientId = event.resource?.['account-path']?.split('/').pop();
+      const resource = event.resource as StelEvent;
+      let clientId = resource?.['account-path']?.split('/').pop();
       if (!clientId || clientId === '' || clientId === 'undefined') {
-        clientId = event.resource?.['account-id']?.toString();
+        clientId = resource?.['account-id']?.toString();
       }
       return clientId;
     });
     
+    // Extract incident IDs from events to fetch address info
+    const incidentIds = sortedEvents.map((event) => {
+      const resource = event.resource as StelEvent;
+      let incidentId = resource?.['incident-path']?.split('/').pop();
+      if (!incidentId || incidentId === '' || incidentId === 'undefined') {
+        incidentId = resource?.['incident-id']?.toString();
+      }
+      return incidentId;
+    });
+    
+    console.log(`📡 Fetching data for ${sortedEvents.length} events...`);
+    console.log(`🔗 Incident IDs linked to events:`, incidentIds.filter(Boolean));
+    
+    // Fetch client info in parallel
     const clientPromises = sortedEvents.map(async (event, index) => {
       const clientId = clientIds[index];
+      const resource = event.resource as StelEvent;
       
-      console.log(`📋 Incident ${index + 1}/${sortedEvents.length}: Client ID:`, clientId, '| account-path:', event.resource?.['account-path'], '| account-id:', event.resource?.['account-id']);
+      console.log(`📋 Event ${index + 1}/${sortedEvents.length}: Client ID:`, clientId, '| account-path:', resource?.['account-path'], '| account-id:', resource?.['account-id']);
       
       if (!clientId) {
-        console.warn(`⚠️ Incident ${event.id} has no account-path or account-id`);
+        console.warn(`⚠️ Event ${event.id} has no account-path or account-id`);
         return null;
       }
       
       try {
-        // Bypass cache for WhatsApp generation to ensure fresh data
         const client = await fetchClientInfo(clientId, true);
         console.log(`✅ Successfully fetched client ${clientId}:`, client?.name || client?.['legal-name']);
         return client;
@@ -1067,63 +868,107 @@ const Calendario = () => {
       }
     });
     
-    const addressIds = sortedEvents.map((event) => {
-      let addressId = event.resource?.['address-path']?.split('/').pop();
-      if (!addressId || addressId === '' || addressId === 'undefined') {
-        addressId = event.resource?.['address-id']?.toString();
+    // Fetch incidents to get address-id (events don't have address directly)
+    const incidentPromises = sortedEvents.map(async (event, index) => {
+      const incidentId = incidentIds[index];
+      const resource = event.resource as StelEvent;
+      
+      if (!incidentId) {
+        console.warn(`⚠️ Event ${event.id} has no incident-id linked`);
+        return null;
       }
-      return addressId;
+      
+      try {
+        console.log(`🔗 Fetching incident ${incidentId} for address info...`);
+        // Use the edge function to fetch the specific incident
+        const { data, error } = await supabase.functions.invoke('stel-incidents-v3', {
+          body: { ids: [parseInt(incidentId)] },
+        });
+        
+        if (error) {
+          console.error(`❌ Error fetching incident ${incidentId}:`, error);
+          return null;
+        }
+        
+        const incidents = Array.isArray(data) ? data : [data];
+        const incident = incidents.find((i: StelIncident) => i && i.id === parseInt(incidentId));
+        
+        if (incident) {
+          console.log(`✅ Found incident ${incidentId}, address-id: ${incident['address-id']}, address-path: ${incident['address-path']}`);
+          return incident;
+        }
+        return null;
+      } catch (error) {
+        console.error(`❌ Failed to fetch incident ${incidentId}:`, error);
+        return null;
+      }
     });
     
+    // Wait for clients and incidents
+    const [clientsInfo, incidentsInfo] = await Promise.all([
+      Promise.all(clientPromises),
+      Promise.all(incidentPromises)
+    ]);
+    
+    // Now fetch addresses from incidents
     const addressPromises = sortedEvents.map(async (event, index) => {
-      const addressId = addressIds[index];
+      const incident = incidentsInfo[index];
+      const resource = event.resource as StelEvent;
+      
+      // First try to get address from incident
+      let addressId: string | undefined;
+      if (incident) {
+        addressId = incident['address-path']?.split('/').pop();
+        if (!addressId || addressId === '' || addressId === 'undefined') {
+          addressId = incident['address-id']?.toString();
+        }
+      }
       
       if (!addressId) {
-        console.warn(`⚠️ Incident ${event.id} has no address-path or address-id`);
-        return null;
+        console.warn(`⚠️ Event ${event.id} / Incident has no address-id`);
+        // Fallback: use location from event if available
+        return resource.location ? { 'address-data': resource.location } : null;
       }
+      
       try {
-        // Bypass cache for WhatsApp generation to ensure fresh data
-        return await fetchAddressInfo(addressId, true);
+        console.log(`🏠 Fetching address ${addressId} from incident...`);
+        const address = await fetchAddressInfo(addressId, true);
+        return address;
       } catch (error) {
         console.error(`❌ Failed to fetch address ${addressId}:`, error);
-        return null;
+        // Fallback to event location
+        return resource.location ? { 'address-data': resource.location } : null;
       }
     });
     
-    const [clientsInfo, addressesInfo] = await Promise.all([
-      Promise.all(clientPromises),
-      Promise.all(addressPromises)
-    ]);
+    const addressesInfo = await Promise.all(addressPromises);
     
     console.log(`✅ Fetched ${clientsInfo.filter(c => c).length} clients, ${addressesInfo.filter(a => a).length} addresses`);
 
-    // IMPORTANT: Always use incidents for WhatsApp text construction (SORTED BY TIME)
-    // NEW: Build enriched events list first
+    // Build enriched events list
     const enrichedEvents = sortedEvents.map((event, index) => {
-      const stelIncident = event.resource as StelIncident;
+      const stelEvent = event.resource as StelEvent;
       
-      // Determine status
-      let status = 'Aceptada';
+      // Determine status from event-state
+      let status = 'Pendiente';
       let isRejected = false;
-      const stateId = stelIncident['incident-state-id'];
-      if (stateId) {
-        const state = currentIncidentStates.get(stateId);
-        if (state) {
-          const name = state.name.toLowerCase();
-          if (name.includes('rechaz') || name.includes('refus') || name.includes('cancel') || name.includes('reject')) {
-            status = 'Rechazada';
-            isRejected = true;
-          }
-        }
+      const eventState = stelEvent['event-state'];
+      if (eventState === 'COMPLETED') {
+        status = 'Completado';
+      } else if (eventState === 'REFUSED') {
+        status = 'Rechazado';
+        isRejected = true;
+      } else if (eventState === 'PENDING') {
+        status = 'Pendiente';
       }
       
       return {
         event,
+        stelEvent,
         client: clientsInfo[index],
-        address: addressesInfo[index],
         clientId: clientIds[index],
-        addressId: addressIds[index],
+        address: addressesInfo[index],
+        incidentId: incidentIds[index],
         status,
         isRejected
       };
@@ -1133,7 +978,7 @@ const Calendario = () => {
     const generateTextFromEvents = (items: typeof enrichedEvents) => {
         if (items.length === 0) {
             const dateStr = moment(date).format('dddd, D [de] MMMM [de] YYYY');
-            return `📋 *Agenda para ${technicianName}*\n📅 ${dateStr}\n⏱️ Total: 0 servicios (0.0h)\n\nNo hay incidencias disponibles.`;
+            return `📋 *Agenda para ${technicianName}*\n📅 ${dateStr}\n⏱️ Total: 0 servicios (0.0h)\n\nNo hay eventos disponibles.`;
         }
 
         const dateStr = moment(date).format('dddd, D [de] MMMM [de] YYYY');
@@ -1148,16 +993,15 @@ const Calendario = () => {
         text += `━━━━━━━━━━━━━━━━━━━━\n\n`;
 
         items.forEach((item, index) => {
-            const { event, client, address, clientId, addressId, status } = item;
-            const stelIncident = event.resource as StelIncident;
+            const { event, stelEvent, client, clientId, address, incidentId, status } = item;
             
-            // 1. Codi / Títol de l'avís o incidència
-            const incidentRef = stelIncident['full-reference'] || stelIncident.reference || 'N/A';
-            text += `*Incidencia: ${incidentRef}*\n\n`;
+            // 1. Títol de l'event (subject o description)
+            const eventTitle = stelEvent.subject || stelEvent.description || `Event ${stelEvent.id}`;
+            text += `*Evento: ${eventTitle}*\n\n`;
             
-            // 2. Descripció del problema o incidència
-            if (stelIncident.description) {
-                text += `${stelIncident.description}\n\n`;
+            // 2. Descripció (si és diferent del títol)
+            if (stelEvent.description && stelEvent.description !== stelEvent.subject) {
+                text += `${stelEvent.description}\n\n`;
             }
             
             // 3. Quan (franja horària de la cita)
@@ -1165,47 +1009,10 @@ const Calendario = () => {
             const endTime = moment(event.end).format('HH:mm');
             text += `*Cuándo:* ${startDateTime} - ${endTime}\n\n`;
             
-            // 4. Tipo de incidencia
-            let incidentTypeId = stelIncident['incident-type-id'] as number | null;
-            let incidentTypeObj: StelIncidentType | undefined | null = undefined;
-
-            if (!incidentTypeId && stelIncident['incident-type-path']) {
-                const path = String(stelIncident['incident-type-path']);
-                const m = path.match(/\/(\d+)\/?$/);
-                if (m) {
-                    const parsed = Number(m[1]);
-                    if (!Number.isNaN(parsed)) incidentTypeId = parsed;
-                }
-            }
-
-            if (typeof incidentTypeId === 'number') {
-                incidentTypeObj = currentIncidentTypes.get(incidentTypeId as number) ?? undefined;
-            } else if (typeof incidentTypeId === 'string') {
-                const n = Number(incidentTypeId);
-                if (!Number.isNaN(n)) incidentTypeObj = currentIncidentTypes.get(n) ?? undefined;
-            }
-
-            if (!incidentTypeObj && stelIncident['incident-type-path']) {
-                const path = String(stelIncident['incident-type-path']);
-                const byPath = Array.from(currentIncidentTypes.values()).find(t => t.path === path);
-                if (byPath) incidentTypeObj = byPath;
-                else {
-                    const tailMatch = path.match(/\/(\d+)\/?$/);
-                    if (tailMatch) {
-                        const tailId = Number(tailMatch[1]);
-                        const byTail = currentIncidentTypes.get(tailId);
-                        if (byTail) incidentTypeObj = byTail;
-                    }
-                }
-            }
-
-            const incidentTypeName = incidentTypeObj?.name || null;
-            text += `*Tipo:* ${incidentTypeName || 'N/A'}\n\n`;
-            
-            // 5. Estado
+            // 4. Estado
             text += `*Estado:* ${status}\n\n`;
             
-            // 6. Client
+            // 5. Client
             if (client) {
                 const clientName = client['legal-name'] || client.name || 'Sin nombre';
                 text += `*Cliente:* ${clientName}\n\n`;
@@ -1217,8 +1024,9 @@ const Calendario = () => {
                 }
             }
             
-            // 7. Direcció
+            // 6. Direcció (obtinguda de l'incident vinculat o del camp location de l'event)
             if (address) {
+                // Build full address from address object
                 const addressParts = [
                     address['address-data'],
                     address['city-town'],
@@ -1226,13 +1034,16 @@ const Calendario = () => {
                     address['province']
                 ].filter(Boolean);
                 
-                const fullAddress = addressParts.join(', ');
+                const fullAddress = addressParts.length > 0 ? addressParts.join(', ') : address['address-data'] || 'Dirección no disponible';
                 text += `*Dirección:* ${fullAddress}\n\n`;
+            } else if (stelEvent.location) {
+                // Fallback to event location field
+                text += `*Dirección:* ${stelEvent.location}\n\n`;
             } else {
-                if (addressId) {
-                    text += `*Dirección:* ⚠️ Error obteniendo dirección #${addressId}\n\n`;
+                if (incidentId) {
+                    text += `*Dirección:* ⚠️ No se encontró dirección para incidencia #${incidentId}\n\n`;
                 } else {
-                    text += `*Dirección:* ⚠️ Sin dirección asignada\n\n`;
+                    text += `*Dirección:* ⚠️ Sin dirección asignada (evento sin incidencia vinculada)\n\n`;
                 }
             }
             
@@ -1247,6 +1058,10 @@ const Calendario = () => {
 
     const allText = generateTextFromEvents(enrichedEvents);
     const acceptedText = generateTextFromEvents(enrichedEvents.filter(e => !e.isRejected));
+
+    console.log(`📱 ========================================`);
+    console.log(`✅ FINAL RESULT: Generated WhatsApp text for ${sortedEvents.length} events`);
+    console.log(`📱 ========================================`);
 
     return {
         all: allText,
@@ -1274,6 +1089,7 @@ const Calendario = () => {
   };
 
   // Generate WhatsApp text and handle async loading
+  // Now uses EVENTS directly (not incidents)
   const handleGenerateWhatsAppText = async (technicianName: string, events: CalendarEvent[], date: Date) => {
     // IMPORTANT: Use the exact date passed, ensure it's normalized to start of day
     const normalizedDate = new Date(date);
@@ -1284,63 +1100,14 @@ const Calendario = () => {
     console.log(`🔑 WhatsApp Cache Key: ${cacheKey}`);
     console.log(`📅 Original date: ${moment(date).format('YYYY-MM-DD HH:mm:ss')}`);
     console.log(`📅 Normalized date: ${moment(normalizedDate).format('YYYY-MM-DD HH:mm:ss')}`);
+    console.log(`📱 Events to process: ${events.length}`);
     
-    console.log(`🔄 Generating NEW WhatsApp text for ${cacheKey} (ALWAYS FRESH)`);
+    console.log(`🔄 Generating WhatsApp text from EVENTS for ${cacheKey}`);
     
-    // Generate new text - use normalized date
+    // Generate text using events directly (no incident fetching needed)
     setLoadingWhatsapp(technicianName);
     try {
-      // Force fetch incidents for the current date to ensure we have the latest data
-      // This fixes the issue where incidents might be stale or missing if the user navigated to a different date
-      console.log('🔄 Force fetching incidents before generating WhatsApp...');
-      
-      // NEW STRATEGY: Extract incident IDs from the events and fetch ONLY those incidents
-      // This guarantees we get the exact incidents linked to the events on the calendar
-      const incidentIds = events
-        .map(e => {
-          const resource = e.resource as unknown as Record<string, unknown>;
-          // Check both incident-id and incident-path
-          let id = resource['incident-id'] as number | undefined;
-          if (!id && typeof resource['incident-path'] === 'string') {
-             const match = resource['incident-path'].match(/\/(\d+)$/);
-             if (match) id = parseInt(match[1]);
-          }
-          return id;
-        })
-        .filter(id => typeof id === 'number') as number[];
-        
-      console.log(`🆔 Extracted ${incidentIds.length} incident IDs from ${events.length} events for WhatsApp generation`);
-      console.log(`🆔 IDs to fetch:`, incidentIds);
-      
-      let result;
-      
-      if (incidentIds.length > 0) {
-        // Fetch specific IDs
-        console.log(`🆔 Fetching ${incidentIds.length} specific incidents...`);
-        result = await fetchIncidents(false, undefined, incidentIds);
-      } else {
-        // Fallback to date range if no IDs found (shouldn't happen for valid events)
-        console.warn('⚠️ No incident IDs found in events, falling back to date range fetch');
-        const startOfDay = new Date(normalizedDate);
-        startOfDay.setHours(0, 0, 0, 0);
-        
-        const endOfDay = new Date(normalizedDate);
-        endOfDay.setHours(23, 59, 59, 999);
-        
-        const oneYearAgo = new Date();
-        oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
-
-        result = await fetchIncidents(false, {
-          start: startOfDay,
-          end: endOfDay,
-          lookbackWindow: oneYearAgo
-        });
-      }
-      
-      const freshIncidents = result?.incidents || [];
-      const assigneeMap = result?.assigneeMap;
-      
-      const text = await generateWhatsAppText(technicianName, events, normalizedDate, freshIncidents, assigneeMap);
+      const text = await generateWhatsAppText(technicianName, events, normalizedDate);
       return text;
     } finally {
       setLoadingWhatsapp(null);
